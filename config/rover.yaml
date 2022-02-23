@@ -2,7 +2,7 @@
 
 # GNSS/INS Parameters
 
-device: tcp://xxx.xxx.xxx.xxx:xxxx
+device: serial:/dev/ttySept
 
 serial:
   baudrate: 115200
@@ -18,43 +18,43 @@ datum: ETRS89
 poi_to_arp:
   delta_e: 0.0
   delta_n: 0.0
-  delta_u: 0.0
+  delta_u: 0.611
 
 poi_to_aux1_arp:
   delta_e: 0.0
-  delta_n: 0.0
-  delta_u: 0.0
+  delta_n: -0.663
+  delta_u: 0.611
   
-ant_type: Unknown
+ant_type: AS-ANT2BCAL NONE
 ant_serial_nr: Unknown
-ant_aux1_type: Unknown
+ant_aux1_type: AS-ANT2BCAL NONE
 ant_aux1_serial_nr: Unknown
 
 leap_seconds: 18
 
 polling_period:
-  pvt: 500
+  pvt: 100
   rest: 500
 
 use_gnss_time: false
 
 ntrip_settings:
-  mode: off
-  caster: 0
-  caster_port: 0
-  username: 0
-  password: 0
-  mountpoint: 0
+  mode: Client
+  caster: 98.159.149.85
+  caster_port: 10000
+  username: tr+cle01726301
+  password: 60293423
+  mountpoint: MSM_NEAR
   ntrip_version: v2
   send_gga: auto
-  rx_has_internet: false
-  rtcm_version: RTCMv2
+  rx_has_internet: true
+  rtcm_version: RTCMv3
   rx_input_corrections_tcp: 6666
   rx_input_corrections_serial: USB2
 
 publish:
   # For both GNSS and INS Rxs
-  navsatfix: false
+  navsatfix: true
   gpsfix: true
   gpgga: false
   gprmc: false
