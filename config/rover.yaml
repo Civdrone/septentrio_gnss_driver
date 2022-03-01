@@ -22,7 +22,7 @@ poi_to_arp:
 
 poi_to_aux1_arp:
   delta_e: 0.0
-  delta_n: -0.663
+  delta_n: 0.0
   delta_u: 0.611
   
 ant_type: AS-ANT2BCAL NONE
@@ -33,18 +33,18 @@ ant_aux1_serial_nr: Unknown
 leap_seconds: 18
 
 polling_period:
-  pvt: 100
+  pvt: 500
   rest: 500
 
 use_gnss_time: false
 
 ntrip_settings:
   mode: Client
-  caster: 98.159.149.85
-  caster_port: 10000
-  username: tr+cle01726301
-  password: 60293423
-  mountpoint: MSM_NEAR
+  caster: 132.239.152.175
+  caster_port: 2103
+  username: CRTNCIVROBOT
+  password: CIVROBOTSURV
+  mountpoint: UCSF_RTCM3
   ntrip_version: v2
   send_gga: auto
   rx_has_internet: true
