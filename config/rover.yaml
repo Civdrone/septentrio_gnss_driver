@@ -33,8 +33,8 @@ ant_aux1_serial_nr: Unknown
 leap_seconds: 18
 
 polling_period:
-  pvt: 500
-  rest: 500
+  pvt: 100
+  rest: 100
 
 use_gnss_time: false
 
