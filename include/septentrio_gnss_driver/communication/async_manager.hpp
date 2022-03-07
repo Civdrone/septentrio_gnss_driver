@@ -125,7 +125,7 @@ namespace io_comm_rx {
          */
         AsyncManager(boost::shared_ptr<StreamT> stream,
                      boost::shared_ptr<boost::asio::io_service> io_service,
-                     std::size_t buffer_size = 16384);
+                     std::size_t buffer_size = 32768);
         virtual ~AsyncManager();
 
         /**
@@ -254,7 +254,7 @@ namespace io_comm_rx {
                 ROS_DEBUG(
                     "Calling read_callback_() method, with number of bytes to be parsed being %li",
                     arg_for_read_callback);
-                read_callback_(to_be_parsed_, arg_for_read_callback);
+                read_callback_(/*to_be_parsed_*/to_be_parsed_, arg_for_read_callback);
             } catch (std::size_t& parsing_failed_here)
             {
                 to_be_parsed_ += parsing_failed_here;
