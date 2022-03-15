@@ -2,7 +2,9 @@
 
 # GNSS/INS Parameters
 
-device: serial:/dev/ttySept
+device: tcp://192.168.3.1:28785
+
+
 
 serial:
   baudrate: 115200
@@ -13,7 +15,7 @@ frame_id: gnss
 
 receiver_type: gnss
 
-datum: ETRS89
+datum: WGS84
 
 poi_to_arp:
   delta_e: 0.0
