@@ -165,6 +165,8 @@ namespace io_comm_rx {
         //! is true
         void tryParsing();
 
+        void HandleStop();
+
         //! Mutex to control changes of class variable "try_parsing"
         boost::mutex parse_mutex_;
 
@@ -190,10 +192,6 @@ namespace io_comm_rx {
         //! Circular buffer to avoid unsuccessful SBF/NMEA parsing due to incomplete
         //! messages
         CircularBuffer circular_buffer_;
-
-        //! Memory location where read_callback_ will start reading unless part of
-        //! SBF/NMEA had to be appended before
-        uint8_t* to_be_parsed_;
 
         //! New thread for receiving incoming messages
         boost::shared_ptr<boost::thread> async_background_thread_;
@@ -221,13 +219,17 @@ namespace io_comm_rx {
         //! Number of times the DoRead() method has been called (only counts
         //! initially)
         uint16_t do_read_count_;
+
+        // Used to catch the SIGINT and SIGTERM signals:
+        boost::asio::signal_set _signals;
+
+        uint16_t _count;
     };
 
     template <typename StreamT>
     void AsyncManager<StreamT>::tryParsing()
     {
         uint8_t* to_be_parsed = new uint8_t[buffer_size_];
-        to_be_parsed_ = to_be_parsed;
         bool timed_out = false;
         std::size_t shift_bytes = 0;
         std::size_t arg_for_read_callback = 0;
@@ -254,10 +256,9 @@ namespace io_comm_rx {
                 ROS_DEBUG(
                     "Calling read_callback_() method, with number of bytes to be parsed being %li",
                     arg_for_read_callback);
-                read_callback_(/*to_be_parsed_*/to_be_parsed_, arg_for_read_callback);
+                read_callback_(to_be_parsed, arg_for_read_callback);
             } catch (std::size_t& parsing_failed_here)
             {
-                to_be_parsed_ += parsing_failed_here;
                 arg_for_read_callback -= parsing_failed_here;
                 ROS_DEBUG(
                     "Current buffer size is %li and parsing_failed_here is %li",
@@ -266,8 +267,7 @@ namespace io_comm_rx {
                                                // caught, which should never happen..
                 {
                     delete[] to_be_parsed; // Freeing memory
-                    uint8_t* to_be_parsed = new uint8_t[buffer_size_];
-                    to_be_parsed_ = to_be_parsed;
+                    to_be_parsed = new uint8_t[buffer_size_];
                     shift_bytes = 0;
                     arg_for_read_callback = 0;
                     continue;
@@ -276,8 +276,7 @@ namespace io_comm_rx {
                 continue;
             }
             delete[] to_be_parsed; // Freeing memory
-            uint8_t* to_be_parsed = new uint8_t[buffer_size_];
-            to_be_parsed_ = to_be_parsed;
+            to_be_parsed = new uint8_t[buffer_size_];
             shift_bytes = 0;
             arg_for_read_callback = 0;
         }
@@ -317,6 +316,15 @@ namespace io_comm_rx {
     }
 
     template <typename StreamT>
+    void AsyncManager<StreamT>::HandleStop()
+    {
+        ROS_INFO("Terminated by user");
+        io_service_->stop();
+        close();
+        exit(-1);
+    }
+
+    template <typename StreamT>
     AsyncManager<StreamT>::AsyncManager(
         boost::shared_ptr<StreamT> stream,
         boost::shared_ptr<boost::asio::io_service> io_service,
@@ -324,12 +332,16 @@ namespace io_comm_rx {
         timer_(*(io_service.get()), boost::posix_time::seconds(1)),
         stopping_(false), try_parsing_(false), allow_writing_(true),
         do_read_count_(0), buffer_size_(buffer_size), count_max_(6),
-        circular_buffer_(buffer_size)
+        circular_buffer_(buffer_size),
+        _signals(*(io_service.get()), SIGINT, SIGTERM),
+        _count(0)
     // Since buffer_size = 16384 in declaration, no need in definition anymore (even
     // yields error message, due to "overwrite").
     {
         ROS_DEBUG(
             "Setting the private stream variable of the AsyncManager instance.");
+        _signals.async_wait(boost::bind(&AsyncManager::HandleStop, this));
+
         stream_ = stream;
         io_service_ = io_service;
         in_.resize(buffer_size_);
@@ -352,8 +364,7 @@ namespace io_comm_rx {
         // and the prior value returned by calling the release() member function,
         // allowing the application to take back responsibility for destroying the
         // object.
-        uint16_t count = 0;
-        boost::thread(boost::bind(&AsyncManager::callAsyncWait, this, &count));
+        boost::thread(boost::bind(&AsyncManager::callAsyncWait, this, &_count));
 
         ROS_DEBUG("Launching tryParsing() thread..");
         boost::thread(boost::bind(&AsyncManager::tryParsing, this));
