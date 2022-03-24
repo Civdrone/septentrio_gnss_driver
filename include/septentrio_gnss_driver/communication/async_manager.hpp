@@ -246,7 +246,11 @@ namespace io_comm_rx {
             allow_writing_ = true;
             std::size_t current_buffer_size = circular_buffer_.size();
             arg_for_read_callback += current_buffer_size;
-            circular_buffer_.read(to_be_parsed + shift_bytes, current_buffer_size);
+            if (shift_bytes > 0)
+            {
+                ROS_WARN_STREAM("Previous messages accumulated to more than buffer size. shift_bytes=" << shift_bytes);
+            }
+            circular_buffer_.read(to_be_parsed + shift_bytes, current_buffer_size - shift_bytes);
 
             lock.unlock();
             parsing_condition_.notify_one();
