@@ -6,6 +6,7 @@
   <arg name="output" default="screen" />
   <arg name="respawn" default="false" />
   <arg name="clear_params" default="true" />
+  <arg name="node_status_delay_ms" default="500" />
 
   <node pkg="septentrio_gnss_driver" type="septentrio_gnss_driver_node" name="$(arg node_name)"
         output="$(arg output)" 
@@ -13,5 +14,7 @@
         respawn="$(arg respawn)">
     <rosparam command="load" 
               file="$(find septentrio_gnss_driver)/config/$(arg param_file_name).yaml" />
+    <param name="node_status_delay_ms"           type="int"  value="$(arg node_status_delay_ms)"/>
+
   </node>
 </launch>
