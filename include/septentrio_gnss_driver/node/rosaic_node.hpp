@@ -276,6 +276,11 @@ namespace rosaic_node {
         void configureRx();
 
         /**
+         * @brief Start sending messages on topic /nodes_status
+         */
+        void startWatchDog();
+
+        /**
          * @brief Initializes the I/O handling
          */
         void initializeIO();
@@ -467,6 +472,13 @@ namespace rosaic_node {
         std::string tcp_port_;
         //! Whether yet-to-be-established connection to Rx will be serial or TCP
         bool serial_;
+        //! node_status_thread_ for sending periodic keep-alive messages.
+        boost::thread node_status_thread_;
+        //! Delay in seconds between keep-alive messages
+        int node_status_delay_ms_;
+        //! topic on which to send the keep-alive messages
+        std::string node_status_topic_;
+
     };
 } // namespace rosaic_node
 
