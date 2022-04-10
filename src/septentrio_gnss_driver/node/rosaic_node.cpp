@@ -37,15 +37,26 @@
  * @brief The heart of the ROSaic driver: The ROS node that represents it
  */
 
-rosaic_node::ROSaicNode::ROSaicNode()
+rosaic_node::ROSaicNode::ROSaicNode() :
+    ConnectivityClient(g_nh.get(), [this](diagnostic_msgs::DiagnosticStatus& msg)
+        {
+            if (connected_)
+            {
+                msg.level = diagnostic_msgs::DiagnosticStatus::OK;
+                msg.message = "connected";
+            }
+            else
+            {
+                msg.level = diagnostic_msgs::DiagnosticStatus::WARN;
+                msg.message = "disconnected";
+            }
+        })
 {
     ROS_DEBUG("Called ROSaicNode() constructor..");
 
     // Parameters must be set before initializing IO
     connected_ = false;
     getROSParams();
-
-    startWatchDog();
 
     // Initializes Connection
     initializeIO();
@@ -67,38 +78,6 @@ rosaic_node::ROSaicNode::ROSaicNode()
     ros::waitForShutdown();
     ROS_DEBUG("Leaving ROSaicNode() constructor..");
 }
-
-void rosaic_node::ROSaicNode::startWatchDog()
-{
-    node_status_thread_ = boost::thread([this]()
-    {
-        ROS_INFO_STREAM("PUBLISH:" << node_status_topic_);
-        ros::Publisher publisher =
-            g_nh->advertise<diagnostic_msgs::DiagnosticStatus>(node_status_topic_, 1);
-        diagnostic_msgs::DiagnosticStatus msg;
-        msg.name = ros::this_node::getName();
-        if (connected_)
-        {
-            msg.level = diagnostic_msgs::DiagnosticStatus::OK;
-            msg.message = "connected";
-        }
-        else
-        {
-            msg.level = diagnostic_msgs::DiagnosticStatus::WARN;
-            msg.message = "disconnected";
-        }
-        msg.hardware_id = "";
-        // diagnostic_msgs/KeyValue[] values
-        while(true)
-        {
-            ROS_INFO("SEND KEEPALIVE");
-            publisher.publish(msg);
-            std::this_thread::sleep_for(std::chrono::milliseconds(node_status_delay_ms_));
-        }
-    });
-}
-
-
 
 //! The send() method of AsyncManager class is paramount for this purpose.
 //! Note that std::to_string() is from C++11 onwards only.
@@ -738,8 +717,6 @@ void rosaic_node::ROSaicNode::getROSParams()
     g_nh->param("serial/rx_serial_port", rx_serial_port_, std::string("USB1"));
     reconnect_delay_s_ = 2.0f; // Removed from ROS parameter list.
     g_nh->param("receiver_type", septentrio_receiver_type_, std::string("gnss"));
-    g_nh->param("status_topic", node_status_topic_, std::string("/nodes_status"));
-    g_nh->param("node_status_delay_ms", node_status_delay_ms_, int(500));
 	
     // Polling period parameters
     getROSInt("polling_period/pvt", polling_period_pvt_,
