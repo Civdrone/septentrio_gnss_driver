@@ -127,6 +127,8 @@
 #include <boost/regex.hpp>
 // ROSaic includes
 #include <septentrio_gnss_driver/communication/communication_core.hpp>
+#include <connectivity_client/connectivity_client.hpp>
+using namespace civros::connectivity;
 
 extern bool g_publish_gpgga;
 extern bool g_publish_pvtcartesian;
@@ -248,7 +250,7 @@ namespace rosaic_node {
      * @class ROSaicNode
      * @brief This class represents the ROsaic node, to be extended..
      */
-    class ROSaicNode
+    class ROSaicNode : public ConnectivityClient
     {
     public:
         //! The constructor initializes and runs the ROSaic node, if everything works
@@ -275,10 +277,10 @@ namespace rosaic_node {
          */
         void configureRx();
 
-        /**
-         * @brief Start sending messages on topic /nodes_status
-         */
-        void startWatchDog();
+        // /**
+        //  * @brief Start sending messages on topic /nodes_status
+        //  */
+        // void startWatchDog();
 
         /**
          * @brief Initializes the I/O handling
@@ -472,13 +474,6 @@ namespace rosaic_node {
         std::string tcp_port_;
         //! Whether yet-to-be-established connection to Rx will be serial or TCP
         bool serial_;
-        //! node_status_thread_ for sending periodic keep-alive messages.
-        boost::thread node_status_thread_;
-        //! Delay in seconds between keep-alive messages
-        int node_status_delay_ms_;
-        //! topic on which to send the keep-alive messages
-        std::string node_status_topic_;
-
     };
 } // namespace rosaic_node
 
