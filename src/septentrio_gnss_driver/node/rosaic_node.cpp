@@ -38,7 +38,10 @@
  */
 
 rosaic_node::ROSaicNode::ROSaicNode() :
-    ConnectivityClient(g_nh.get(), [this](diagnostic_msgs::DiagnosticStatus& msg)
+    ConnectivityClient(g_nh.get())
+{
+    ROS_DEBUG("Called ROSaicNode() constructor..");
+    InitializeConnectivity([this](diagnostic_msgs::DiagnosticStatus& msg)
         {
             if (connected_)
             {
@@ -50,9 +53,7 @@ rosaic_node::ROSaicNode::ROSaicNode() :
                 msg.level = diagnostic_msgs::DiagnosticStatus::WARN;
                 msg.message = "disconnected";
             }
-        })
-{
-    ROS_DEBUG("Called ROSaicNode() constructor..");
+        });
 
     // Parameters must be set before initializing IO
     connected_ = false;
