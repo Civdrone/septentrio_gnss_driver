@@ -37,23 +37,23 @@
  * @brief The heart of the ROSaic driver: The ROS node that represents it
  */
 
-rosaic_node::ROSaicNode::ROSaicNode() :
-    ConnectivityClient(g_nh.get())
+rosaic_node::ROSaicNode::ROSaicNode() //:
+    // ConnectivityClient(g_nh.get())
 {
     ROS_DEBUG("Called ROSaicNode() constructor..");
-    InitializeConnectivity([this](diagnostic_msgs::DiagnosticStatus& msg)
-        {
-            if (connected_)
-            {
-                msg.level = diagnostic_msgs::DiagnosticStatus::OK;
-                msg.message = "connected";
-            }
-            else
-            {
-                msg.level = diagnostic_msgs::DiagnosticStatus::WARN;
-                msg.message = "disconnected";
-            }
-        });
+    // InitializeConnectivity([this](diagnostic_msgs::DiagnosticStatus& msg)
+    //     {
+    //         if (connected_)
+    //         {
+    //             msg.level = diagnostic_msgs::DiagnosticStatus::OK;
+    //             msg.message = "connected";
+    //         }
+    //         else
+    //         {
+    //             msg.level = diagnostic_msgs::DiagnosticStatus::WARN;
+    //             msg.message = "disconnected";
+    //         }
+    //     });
 
     // Parameters must be set before initializing IO
     connected_ = false;
@@ -140,7 +140,7 @@ void rosaic_node::ROSaicNode::configureRx()
     // else
     //     rest_sec_or_msec = "msec";
 
-    // // Turning off all current SBF/NMEA output    
+    // // Turning off all current SBF/NMEA output
     // IO.send("sso, all, none, none, off \x0D");
     // g_response_condition.wait(lock, []() { return g_response_received; });
     // g_response_received = false;
@@ -393,7 +393,7 @@ void rosaic_node::ROSaicNode::configureRx()
 	// 	++stream;
 	// 	g_response_condition.wait(lock, []() { return g_response_received; });
 	// 	g_response_received = false;
-	// }  
+	// }
 	// if (g_publish_diagnostics == true)
 	// {
 	// 	std::stringstream ss;
@@ -527,11 +527,11 @@ void rosaic_node::ROSaicNode::configureRx()
 	// 	g_response_condition.wait(lock, []() { return g_response_received; });
 	// 	g_response_received = false;
     // }
-    
+
 	// // Setting the INS-related commands
     // if (septentrio_receiver_type_ == "ins")
     // {
-    //     // IMU orientation 
+    //     // IMU orientation
     //     {
     //         std::stringstream ss;
 	// 		if (manual_ == false)
@@ -542,11 +542,11 @@ void rosaic_node::ROSaicNode::configureRx()
 	// 		{
 	// 			orientation_mode_ = "manual";
 	// 		}
-	// 		if (theta_x_ >= ANGLE_MIN && theta_x_<= ANGLE_MAX && theta_y_ >= THETA_Y_MIN && theta_y_ <= THETA_Y_MAX && 
+	// 		if (theta_x_ >= ANGLE_MIN && theta_x_<= ANGLE_MAX && theta_y_ >= THETA_Y_MIN && theta_y_ <= THETA_Y_MAX &&
 	// 			theta_z_ >= ANGLE_MIN && theta_z_ <= ANGLE_MAX)
 	// 		{
-	// 			ss << " sio, " <<orientation_mode_ << ", " << string_utilities::trimString(std::to_string(theta_x_)) << ", " 
-	// 				<< string_utilities::trimString(std::to_string(theta_y_)) << ", " 
+	// 			ss << " sio, " <<orientation_mode_ << ", " << string_utilities::trimString(std::to_string(theta_x_)) << ", "
+	// 				<< string_utilities::trimString(std::to_string(theta_y_)) << ", "
 	// 				<< string_utilities::trimString(std::to_string(theta_z_)) << " \x0D";
 	// 			IO.send(ss.str());
 	// 		}
@@ -554,14 +554,14 @@ void rosaic_node::ROSaicNode::configureRx()
 	// 		{
 	// 			ROS_ERROR("Please specify a correct value for IMU orientation angles");
 	// 		}
-        
+
     //     }
     //     g_response_condition.wait(lock, []() { return g_response_received; });
     //     g_response_received = false;
 
     //     // Setting the INS antenna lever arm offset
     //     {
-    //         if (x_>=LEVER_ARM_MIN && x_<=LEVER_ARM_MAX && y_>=LEVER_ARM_MIN && y_<=LEVER_ARM_MAX 
+    //         if (x_>=LEVER_ARM_MIN && x_<=LEVER_ARM_MAX && y_>=LEVER_ARM_MIN && y_<=LEVER_ARM_MAX
     //             && z_>=LEVER_ARM_MIN && z_<=LEVER_ARM_MAX)
     //         {
     //             std::stringstream ss;
@@ -580,7 +580,7 @@ void rosaic_node::ROSaicNode::configureRx()
 
     //     // Setting the user defined point offset
     //     {
-    //         if (poi_x_>=LEVER_ARM_MIN && poi_x_<=LEVER_ARM_MAX && poi_y_>=LEVER_ARM_MIN && poi_y_<=LEVER_ARM_MAX 
+    //         if (poi_x_>=LEVER_ARM_MIN && poi_x_<=LEVER_ARM_MAX && poi_y_>=LEVER_ARM_MIN && poi_y_<=LEVER_ARM_MAX
     //             && poi_z_>=LEVER_ARM_MIN && poi_z_<=LEVER_ARM_MAX)
     //         {
     //             std::stringstream ss;
@@ -612,7 +612,7 @@ void rosaic_node::ROSaicNode::configureRx()
     //         {
     //             ROS_ERROR("Please specify a correct value for vsm_x, vsm_y and vsm_z in the config file under vel_sensor_lever_arm");
     //         }
-            
+
     //     }
     //     g_response_condition.wait(lock, []() { return g_response_received; });
     //     g_response_received = false;
@@ -633,7 +633,7 @@ void rosaic_node::ROSaicNode::configureRx()
     //     }
     //     g_response_condition.wait(lock, []() { return g_response_received; });
     //     g_response_received = false;
-        
+
     //     // Setting the INS Solution Reference Point: MainAnt or POI1
     //     // First disable any existing INS sub-block connection
     //     {
@@ -643,7 +643,7 @@ void rosaic_node::ROSaicNode::configureRx()
     //     }
     //     g_response_condition.wait(lock, []() { return g_response_received; });
     //     g_response_received = false;
-		
+
 	// 	// INS solution reference point
 	// 	{
 	// 		std::stringstream ss;
@@ -690,7 +690,7 @@ void rosaic_node::ROSaicNode::configureRx()
 
     //     // Setting the INS navigation filter
     //     {
-    //         if (att_std_dev_ >=ATTSTD_DEV_MIN && att_std_dev_ <= ATTSTD_DEV_MAX && 
+    //         if (att_std_dev_ >=ATTSTD_DEV_MIN && att_std_dev_ <= ATTSTD_DEV_MAX &&
     //         pos_std_dev_ >= POSSTD_DEV_MIN && pos_std_dev_ <= POSSTD_DEV_MAX)
     //         {
     //             std::stringstream ss;
@@ -718,7 +718,7 @@ void rosaic_node::ROSaicNode::getROSParams()
     g_nh->param("serial/rx_serial_port", rx_serial_port_, std::string("USB1"));
     reconnect_delay_s_ = 2.0f; // Removed from ROS parameter list.
     g_nh->param("receiver_type", septentrio_receiver_type_, std::string("gnss"));
-	
+
     // Polling period parameters
     getROSInt("polling_period/pvt", polling_period_pvt_,
               static_cast<uint32_t>(1000));
@@ -757,13 +757,13 @@ void rosaic_node::ROSaicNode::getROSParams()
     g_nh->param("poi_to_aux1_arp/delta_e", delta_aux1_e_, 0.0f);
     g_nh->param("poi_to_aux1_arp/delta_n", delta_aux1_n_, 0.0f);
     g_nh->param("poi_to_aux1_arp/delta_u", delta_aux1_u_, 0.0f);
-	
+
 	// INS Spatial Configuration
     // IMU orientation parameter
     g_nh->param("ins_spatial_config/imu_orientation/theta_x", theta_x_, 0.0f);
     g_nh->param("ins_spatial_config/imu_orientation/theta_y", theta_y_, 0.0f);
     g_nh->param("ins_spatial_config/imu_orientation/theta_z", theta_z_, 0.0f);
-	
+
     // INS antenna lever arm offset parameter
     g_nh->param("ins_spatial_config/ant_lever_arm/x", x_, 0.0f);
     g_nh->param("ins_spatial_config/ant_lever_arm/y", y_, 0.0f);
@@ -778,7 +778,7 @@ void rosaic_node::ROSaicNode::getROSParams()
     g_nh->param("ins_spatial_config/vel_sensor_lever_arm/vsm_x", vsm_x_, 0.0f);
     g_nh->param("ins_spatial_config/vel_sensor_lever_arm/vsm_y", vsm_y_, 0.0f);
     g_nh->param("ins_spatial_config/vel_sensor_lever_arm/vsm_z", vsm_z_, 0.0f);
-    
+
     // Attitude Determination parameter
     g_nh->param("ins_spatial_config/att_offset/heading", heading_, 0.0f);
     g_nh->param("ins_spatial_config/att_offset/pitch", pitch_, 0.0f);
@@ -835,7 +835,7 @@ void rosaic_node::ROSaicNode::getROSParams()
     g_nh->param("publish/exteventinsnavgeod", publish_exteventinsnavgeod_, true);
     g_nh->param("publish/exteventinsnavcart", publish_exteventinsnavcart_, true);
     g_nh->param("publish/extsensormeas", publish_extsensormeas_, true);
-	
+
     // To be implemented: RTCM, raw data settings, PPP, SBAS ...
     ROS_DEBUG("Finished getROSParams() method");
 };
@@ -1095,41 +1095,41 @@ void rosaic_node::ROSaicNode::defineMessages()
         IO.handlers_.callbackmap_ =
             IO.getHandlers().insert<septentrio_gnss_driver::AttCovEuler>("5939");
     }
-    
+
 	// INS-related SBF blocks
     if (publish_insnavcart_ == true)
     {
-        IO.handlers_.callbackmap_ = 
+        IO.handlers_.callbackmap_ =
             IO.getHandlers().insert<septentrio_gnss_driver::INSNavCart>("4225");
     }
     if (publish_insnavgeod_ == true)
     {
-        IO.handlers_.callbackmap_ = 
+        IO.handlers_.callbackmap_ =
             IO.getHandlers().insert<septentrio_gnss_driver::INSNavGeod>("4226");
     }
     if (publish_imusetup_ == true)
     {
-        IO.handlers_.callbackmap_ = 
+        IO.handlers_.callbackmap_ =
             IO.getHandlers().insert<septentrio_gnss_driver::IMUSetup>("4224");
     }
     if (publish_extsensormeas_ == true)
     {
-        IO.handlers_.callbackmap_ = 
+        IO.handlers_.callbackmap_ =
             IO.getHandlers().insert<septentrio_gnss_driver::ExtSensorMeas>("4050");
     }
     if (publish_exteventinsnavgeod_ == true)
     {
-        IO.handlers_.callbackmap_ = 
+        IO.handlers_.callbackmap_ =
             IO.getHandlers().insert<septentrio_gnss_driver::ExtEventINSNavGeod>("4230");
     }
     if (publish_velsensorsetup_ == true)
     {
-        IO.handlers_.callbackmap_ = 
+        IO.handlers_.callbackmap_ =
             IO.getHandlers().insert<septentrio_gnss_driver::VelSensorSetup>("4244");
     }
     if (publish_exteventinsnavcart_ == true)
     {
-        IO.handlers_.callbackmap_ = 
+        IO.handlers_.callbackmap_ =
             IO.getHandlers().insert<septentrio_gnss_driver::ExtEventINSNavCart>("4229");
     }
 	if (g_publish_gpst == true)
@@ -1402,13 +1402,13 @@ int main(int argc, char** argv)
     g_insnavgeod_has_arrived_gpsfix = false;
     g_insnavgeod_has_arrived_navsatfix = false;
     g_insnavgeod_has_arrived_pose = false;
-	
+
     // The info logging level seems to be default, hence we modify log level
     // momentarily.. The following is the C++ version of
     // rospy.init_node('my_ros_node', log_level=rospy.DEBUG)
     if (ros::console::set_logger_level(
             ROSCONSOLE_DEFAULT_NAME,
-            ros::console::levels::Debug)) // debug is lowest level, shows everything
+            ros::console::levels::Info)) // debug is lowest level, shows everything
         ros::console::notifyLoggerLevelsChanged();
 
     rosaic_node::ROSaicNode
