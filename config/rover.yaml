@@ -4,8 +4,6 @@
 
 device: tcp://192.168.3.1:28785
 
-
-
 serial:
   baudrate: 115200
   rx_serial_port: USB1
@@ -26,7 +24,7 @@ poi_to_aux1_arp:
   delta_e: 0.0
   delta_n: 0.0
   delta_u: 0.611
-  
+
 ant_type: AS-ANT2BCAL NONE
 ant_serial_nr: Unknown
 ant_aux1_type: AS-ANT2BCAL NONE
@@ -60,7 +58,7 @@ publish:
   gpsfix: true
   gpgga: false
   gprmc: false
-  gpst : false
+  gpst: false
   pvtcartesian: false
   pvtgeodetic: true
   poscovcartesian: false
@@ -69,7 +67,7 @@ publish:
   atteuler: true
   attcoveuler: true
   pose: false
-  diagnostics: false
+  diagnostics: true
   # For GNSS Rx only
   gpgsa: false
   gpgsv: false
