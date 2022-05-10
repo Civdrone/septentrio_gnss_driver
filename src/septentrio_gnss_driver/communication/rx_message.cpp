@@ -3476,7 +3476,7 @@ bool io_comm_rx::RxMessage::read(std::string message_key, bool search)
 			g_receiverstatus_has_arrived_diagnostics = false;
 			g_qualityind_has_arrived_diagnostics = false;
 			static ros::Publisher publisher =
-				g_nh->advertise<diagnostic_msgs::DiagnosticArray>("/diagnostics",
+				g_nh->advertise<diagnostic_msgs::DiagnosticArray>("/civros/connectivity/nodes_status",
 																g_ROS_QUEUE_SIZE);
 			// Wait as long as necessary (only when reading from SBF/PCAP file)
 			if (g_read_from_sbf_log || g_read_from_pcap)
