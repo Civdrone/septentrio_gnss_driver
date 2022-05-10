@@ -70,7 +70,7 @@ io_comm_rx::RxMessage::TypeOfPVTMap
 //! Pair of iterators to facilitate initialization of the map
 std::pair<std::string, RxID_Enum> rx_id_pairs[] = {
     std::make_pair("NavSatFix", evNavSatFix),
-    std::make_pair("INSNavSatFix", evINSNavSatFix),   
+    std::make_pair("INSNavSatFix", evINSNavSatFix),
     std::make_pair("GPSFix", evGPSFix),
     std::make_pair("INSGPSFix", evINSGPSFix),
     std::make_pair("PoseWithCovarianceStamped", evPoseWithCovarianceStamped),
@@ -323,7 +323,7 @@ io_comm_rx::RxMessage::INSNavCartCallback(INSNavCart& data)
     int SBI_dx = 0;
     septentrio_gnss_driver::INSNavCartPtr msg =
         boost::make_shared<septentrio_gnss_driver::INSNavCart>();
-    
+
     msg->block_header.sync_1 = data.block_header.sync_1;
     msg->block_header.sync_2 = data.block_header.sync_2;
     msg->block_header.crc = data.block_header.crc;
@@ -465,7 +465,7 @@ io_comm_rx::RxMessage::INSNavGeodCallback(INSNavGeod& data)
     int SBIdx = 0;
     septentrio_gnss_driver::INSNavGeodPtr msg =
         boost::make_shared<septentrio_gnss_driver::INSNavGeod>();
-    
+
     msg->block_header.sync_1 = data.block_header.sync_1;
     msg->block_header.sync_2 = data.block_header.sync_2;
     msg->block_header.crc = data.block_header.crc;
@@ -606,7 +606,7 @@ io_comm_rx::RxMessage::INSNavGeodCallback(INSNavGeod& data)
 septentrio_gnss_driver::IMUSetupPtr
 io_comm_rx::RxMessage::IMUSetupCallback(IMUSetup& data)
 {
-    septentrio_gnss_driver::IMUSetupPtr msg = 
+    septentrio_gnss_driver::IMUSetupPtr msg =
         boost::make_shared<septentrio_gnss_driver::IMUSetup>();
     msg->block_header.sync_1 = data.block_header.sync_1;
     msg->block_header.sync_2 = data.block_header.sync_2;
@@ -628,7 +628,7 @@ io_comm_rx::RxMessage::IMUSetupCallback(IMUSetup& data)
 septentrio_gnss_driver::VelSensorSetupPtr
 io_comm_rx::RxMessage::VelSensorSetupCallback(VelSensorSetup& data)
 {
-    septentrio_gnss_driver::VelSensorSetupPtr msg = 
+    septentrio_gnss_driver::VelSensorSetupPtr msg =
         boost::make_shared<septentrio_gnss_driver::VelSensorSetup>();
 
     msg->block_header.sync_1 = data.block_header.sync_1;
@@ -651,7 +651,7 @@ io_comm_rx::RxMessage::ExtEventINSNavGeodCallback(ExtEventINSNavGeod& data)
     int SBIdx = 0;
     septentrio_gnss_driver::ExtEventINSNavGeodPtr msg =
         boost::make_shared<septentrio_gnss_driver::ExtEventINSNavGeod>();
-    
+
     msg->block_header.sync_1 = data.block_header.sync_1;
     msg->block_header.sync_2 = data.block_header.sync_2;
     msg->block_header.crc = data.block_header.crc;
@@ -751,7 +751,7 @@ io_comm_rx::RxMessage::ExtEventINSNavCartCallback(ExtEventINSNavCart& data)
     int SBI_dx = 0;
     septentrio_gnss_driver::ExtEventINSNavCartPtr msg =
         boost::make_shared<septentrio_gnss_driver::ExtEventINSNavCart>();
-    
+
     msg->block_header.sync_1 = data.block_header.sync_1;
     msg->block_header.sync_2 = data.block_header.sync_2;
     msg->block_header.crc = data.block_header.crc;
@@ -860,7 +860,7 @@ io_comm_rx::RxMessage::ExtSensorMeasCallback(ExtSensorMeas& data)
     msg->block_header.wnc = data.wnc;
     msg->n = data.n;
     msg->sb_length = data.sb_length;
-    
+
     for (i=0; i<msg->n;i++)
     {
         msg->source = data.ExtSensorMeas[i].Source;
@@ -1107,14 +1107,19 @@ diagnostic_msgs::DiagnosticArrayPtr io_comm_rx::RxMessage::DiagnosticArrayCallba
 		gnss_status->level = diagnostic_msgs::DiagnosticStatus::ERROR;
 	}
 	// Creating an array of values associated with the GNSS status
-	gnss_status->values.resize(static_cast<uint16_t>(last_qualityind_.n - 1));
-	for (uint16_t i = static_cast<uint16_t>(0);
-		i != static_cast<uint16_t>(last_qualityind_.n); ++i)
-	{
+	// ROS_INFO("gnss_status->values %d, qualityind_pos %d", last_qualityind_.n - 1 + 2, qualityind_pos);
+	gnss_status->values.resize(last_qualityind_.n > 0 ? static_cast<uint16_t>(last_qualityind_.n - 1 + 3) : static_cast<uint16_t>(3));
+    uint16_t i = static_cast<uint16_t>(0);
+		// ROS_INFO("i before loop %d", i);
+    for (; i != static_cast<uint16_t>(last_qualityind_.n); ++i)
+    {
+			// ROS_INFO("i before continue %d", i);
 		if (i == qualityind_pos)
 		{
 			continue;
 		}
+
+		// ROS_INFO("i after continue %d", i);
 		if ((last_qualityind_.indicators[i] & indicators_type_mask) ==
 			static_cast<uint16_t>(1))
 		{
@@ -1166,12 +1171,63 @@ diagnostic_msgs::DiagnosticArrayPtr io_comm_rx::RxMessage::DiagnosticArrayCallba
 				(last_qualityind_.indicators[i] & indicators_value_mask) >> 8);
 		}
     }
-	gnss_status->hardware_id = serialnumber;
-	gnss_status->name = "gnss";
-	gnss_status->message =
-		"Quality Indicators (from 0 for low quality to 10 for high quality, 15 if unknown)";
-	msg->status.push_back(*gnss_status);
-	return msg;
+		// ROS_INFO("i after loop %d", i);
+    if(i > 0 )
+			--i;
+		// ROS_INFO("Horizontal Error i %d", i);
+    gnss_status->values[i].key = "Horizontal Error";
+		gnss_status->values[i].value = std::to_string(2 * (std::sqrt(static_cast<double>(last_poscovgeodetic_.cov_latlat) +
+		                																							static_cast<double>(last_poscovgeodetic_.cov_lonlon))));
+    ++i;
+		// ROS_INFO("Vertical Error i %d", i);
+		gnss_status->values[i].key = "Vertical Error";
+    gnss_status->values[i].value = std::to_string(2 * std::sqrt(static_cast<double>(last_poscovgeodetic_.cov_hgthgt)));
+
+    ++i;
+    int cno_counter = 0;
+    uint8_t sb1_size = last_measepoch_.sb1_size;
+    uint8_t sb2_size = last_measepoch_.sb2_size;
+    uint8_t* sb_start = &last_measepoch_.data[0];
+    int32_t index = sb_start - &last_measepoch_.block_header.sync_1;
+    for (int32_t i = 0; i < static_cast<int32_t>(last_measepoch_.n); ++i)
+    {
+        // Define MeasEpochChannelType1 struct for the corresponding sub-block
+        MeasEpochChannelType1* measepoch_channel_type1 =
+            reinterpret_cast<MeasEpochChannelType1*>(
+                &last_measepoch_.block_header.sync_1 + index);
+        // svid_in_sync.push_back(static_cast<int32_t>(measepoch_channel_type1->sv_id));
+        uint8_t type_mask = 15; // We extract the first four bits using this mask.
+        if (((measepoch_channel_type1->type & type_mask) ==
+             static_cast<uint8_t>(1)) ||
+            ((measepoch_channel_type1->type & type_mask) == static_cast<uint8_t>(2)))
+        {
+            if (static_cast<int32_t>(measepoch_channel_type1->cn0) / 4 > static_cast<int32_t>(45) )
+                cno_counter++;
+        }
+				else
+        {
+            if(static_cast<int32_t>(measepoch_channel_type1->cn0) / 4 +
+                static_cast<int32_t>(10) > static_cast<int32_t>(45))
+								cno_counter++;
+        }
+        index += sb1_size;
+        for (int32_t j = 0;
+             j < static_cast<int32_t>(measepoch_channel_type1->n_type2); j++)
+        {
+            index += sb2_size;
+        }
+		}
+
+		gnss_status->values[i].key = "CN0 > 45 Counter";
+		gnss_status->values[i].value = std::to_string(cno_counter);
+
+
+    gnss_status->hardware_id = serialnumber;
+    gnss_status->name = ros::this_node::getName();
+    gnss_status->message =
+            "Quality Indicators (from 0 for low quality to 10 for high quality, 15 if unknown)";
+    msg->status.push_back(*gnss_status);
+    return msg;
 };
 
 /**
@@ -1373,8 +1429,8 @@ sensor_msgs::NavSatFixPtr io_comm_rx::RxMessage::NavSatFixCallback()
 };
 
 /**
- * Note that the field "dip" denotes the local magnetic inclination in degrees 
- * (positive when the magnetic field points downwards (into the Earth)). 
+ * Note that the field "dip" denotes the local magnetic inclination in degrees
+ * (positive when the magnetic field points downwards (into the Earth)).
  * This quantity cannot be calculated by most Septentrio
  * receivers. We assume that for the ROS field "err_time", we are requested to
  * provide the 2 sigma uncertainty on the clock bias estimate in square meters, not
@@ -1450,7 +1506,7 @@ gps_common::GPSFixPtr io_comm_rx::RxMessage::GPSFixCallback()
 		uint8_t sb2_size = last_channelstatus_.sb2_size;
 		uint8_t* sb_start = &last_channelstatus_.data[0];
 		int32_t index = sb_start - &last_channelstatus_.block_header.sync_1;
-		// ROS_DEBUG("index is %i", index); // yields 20, as expected
+		// ROS_DEBUG("index is %i", index); // yields 20, as expectedGPSF
 
 		uint16_t azimuth_mask = 511;
 		for (int32_t i = 0; i < static_cast<int32_t>(last_channelstatus_.n); i++)
@@ -1529,10 +1585,10 @@ gps_common::GPSFixPtr io_comm_rx::RxMessage::GPSFixCallback()
 	}
 	msg->status.satellite_visible_snr = cno_tracked_reordered;
 	msg->err_time = 2 * std::sqrt(static_cast<double>(last_poscovgeodetic_.cov_bb));
-	
+
 	if (septentrio_receiver_type_ == "gnss")
     {
-		
+
         // PVT Status Analysis
         uint16_t status_mask = 15; // We extract the first four bits using this mask.
         uint16_t type_of_pvt = ((uint16_t)(last_pvtgeodetic_.mode)) & status_mask;
@@ -1687,9 +1743,9 @@ gps_common::GPSFixPtr io_comm_rx::RxMessage::GPSFixCallback()
         msg->position_covariance[8] =
             static_cast<double>(last_poscovgeodetic_.cov_hgthgt);
         msg->position_covariance_type = sensor_msgs::NavSatFix::COVARIANCE_TYPE_KNOWN;
-		
+
     }
-    
+
     if (septentrio_receiver_type_ == "ins")
     {
         int SBIdx = 0;
@@ -1747,7 +1803,7 @@ gps_common::GPSFixPtr io_comm_rx::RxMessage::GPSFixCallback()
         }
         if ((last_insnavgeod_.sb_list & 8) !=0)
         {
-            msg->speed = std::sqrt(std::pow(static_cast<double>(last_insnavgeod_.INSNavGeodData[SBIdx].Vel.vn),2) + 
+            msg->speed = std::sqrt(std::pow(static_cast<double>(last_insnavgeod_.INSNavGeodData[SBIdx].Vel.vn),2) +
                                     std::pow(static_cast<double>(last_insnavgeod_.INSNavGeodData[SBIdx].Vel.ve),2));
 
 			msg->climb = static_cast<double>(last_insnavgeod_.INSNavGeodData[SBIdx].Vel.vu);
@@ -1794,33 +1850,33 @@ gps_common::GPSFixPtr io_comm_rx::RxMessage::GPSFixCallback()
                     static_cast<double>(last_insnavgeod_.wnc * 7 * 24 * 60 * 60);
         if((last_insnavgeod_.sb_list & 1) !=0)
         {
-            msg->err = 2*(std::sqrt(std::pow(static_cast<double>(last_insnavgeod_.INSNavGeodData[SBIdx].PosStdDev.latitude_std_dev),2) + 
-                        std::pow(static_cast<double>(last_insnavgeod_.INSNavGeodData[SBIdx].PosStdDev.longitude_std_dev),2)+ 
+            msg->err = 2*(std::sqrt(std::pow(static_cast<double>(last_insnavgeod_.INSNavGeodData[SBIdx].PosStdDev.latitude_std_dev),2) +
+                        std::pow(static_cast<double>(last_insnavgeod_.INSNavGeodData[SBIdx].PosStdDev.longitude_std_dev),2)+
                         std::pow(static_cast<double>(last_insnavgeod_.INSNavGeodData[SBIdx].PosStdDev.height_std_dev),2)));
-			msg->err_horz = 2*(std::sqrt(std::pow(static_cast<double>(last_insnavgeod_.INSNavGeodData[SBIdx].PosStdDev.latitude_std_dev),2) + 
+			msg->err_horz = 2*(std::sqrt(std::pow(static_cast<double>(last_insnavgeod_.INSNavGeodData[SBIdx].PosStdDev.latitude_std_dev),2) +
                         std::pow(static_cast<double>(last_insnavgeod_.INSNavGeodData[SBIdx].PosStdDev.longitude_std_dev),2)));
 			msg->err_vert = 2*(std::sqrt(std::pow(static_cast<double>(last_insnavgeod_.INSNavGeodData[SBIdx].PosStdDev.height_std_dev),2)));
         }
         if (((last_insnavgeod_.sb_list & 8) !=0) || ((last_insnavgeod_.sb_list & 1) !=0))
         {
-            msg->err_track = 
-                2 * 
+            msg->err_track =
+                2 *
                 (std::sqrt(
                     std::pow(static_cast<double>(1) /
-                                (static_cast<double>(last_insnavgeod_.INSNavGeodData[SBIdx].Vel.vn) + 
-                                std::pow(static_cast<double>(last_insnavgeod_.INSNavGeodData[SBIdx].Vel.ve),2) / 
+                                (static_cast<double>(last_insnavgeod_.INSNavGeodData[SBIdx].Vel.vn) +
+                                std::pow(static_cast<double>(last_insnavgeod_.INSNavGeodData[SBIdx].Vel.ve),2) /
                                     static_cast<double>(last_insnavgeod_.INSNavGeodData[SBIdx].Vel.vn)),
-                            2) * 
+                            2) *
                         std::pow(static_cast<double>(last_insnavgeod_.INSNavGeodData[SBIdx].PosStdDev.longitude_std_dev),2) +
                         std::pow((static_cast<double>(last_insnavgeod_.INSNavGeodData[SBIdx].Vel.ve)) /
                                 (std::pow(static_cast<double>(last_insnavgeod_.INSNavGeodData[SBIdx].Vel.vn),2) +
                                 std::pow(static_cast<double>(last_insnavgeod_.INSNavGeodData[SBIdx].Vel.ve),2)),
                             2) *
-                        std::pow(static_cast<double>(last_insnavgeod_.INSNavGeodData[SBIdx].PosStdDev.latitude_std_dev),2)));   
+                        std::pow(static_cast<double>(last_insnavgeod_.INSNavGeodData[SBIdx].PosStdDev.latitude_std_dev),2)));
         }
         if ((last_insnavgeod_.sb_list & 8) !=0)
         {
-            msg->err_speed = 2 * (std::sqrt(std::pow(static_cast<double>(last_insnavgeod_.INSNavGeodData[SBIdx].Vel.vn),2) + 
+            msg->err_speed = 2 * (std::sqrt(std::pow(static_cast<double>(last_insnavgeod_.INSNavGeodData[SBIdx].Vel.vn),2) +
                                 std::pow(static_cast<double>(last_insnavgeod_.INSNavGeodData[SBIdx].Vel.ve),2)));
 			msg->err_climb = 2 * std::sqrt(std::pow(static_cast<double>(last_insnavgeod_.INSNavGeodData[SBIdx].Vel.vn),2));
         }
@@ -2513,7 +2569,7 @@ bool io_comm_rx::RxMessage::read(std::string message_key, bool search)
 			msg->header.stamp.sec = time_obj.sec;
 			msg->header.stamp.nsec = time_obj.nsec;
 			msg->block_header.id = 4225;
-			static ros::Publisher publisher = 
+			static ros::Publisher publisher =
 				g_nh->advertise<septentrio_gnss_driver::INSNavCart>(
 					"/insnavcart", g_ROS_QUEUE_SIZE);
 			// Wait as long as necessary (only when reading from SBF/PCAP file)
@@ -2583,7 +2639,7 @@ bool io_comm_rx::RxMessage::read(std::string message_key, bool search)
 			break;
 		}
 
-		case evIMUSetup: // IMU orientation and lever arm 
+		case evIMUSetup: // IMU orientation and lever arm
 		{
 			septentrio_gnss_driver::IMUSetupPtr msg =
 				boost::make_shared<septentrio_gnss_driver::IMUSetup>();
@@ -2597,8 +2653,8 @@ bool io_comm_rx::RxMessage::read(std::string message_key, bool search)
 			msg->header.stamp.sec = time_obj.sec;
 			msg->header.stamp.nsec = time_obj.nsec;
 			msg->block_header.id = 4224;
-			static ros::Publisher publisher = 
-				g_nh->advertise<septentrio_gnss_driver::IMUSetup>("/imusetup", 
+			static ros::Publisher publisher =
+				g_nh->advertise<septentrio_gnss_driver::IMUSetup>("/imusetup",
 																g_ROS_QUEUE_SIZE);
 			// Wait as long as necessary (only when reading from SBF/PCAP file)
 			if (g_read_from_sbf_log || g_read_from_pcap)
@@ -2638,8 +2694,8 @@ bool io_comm_rx::RxMessage::read(std::string message_key, bool search)
 			msg->header.stamp.sec = time_obj.sec;
 			msg->header.stamp.nsec = time_obj.nsec;
 			msg->block_header.id = 4244;
-			static ros::Publisher publisher = 
-				g_nh->advertise<septentrio_gnss_driver::VelSensorSetup>("/velsensorsetup", 
+			static ros::Publisher publisher =
+				g_nh->advertise<septentrio_gnss_driver::VelSensorSetup>("/velsensorsetup",
 																g_ROS_QUEUE_SIZE);
 			// Wait as long as necessary (only when reading from SBF/PCAP file)
 			if (g_read_from_sbf_log || g_read_from_pcap)
@@ -2680,7 +2736,7 @@ bool io_comm_rx::RxMessage::read(std::string message_key, bool search)
 			msg->header.stamp.sec = time_obj.sec;
 			msg->header.stamp.nsec = time_obj.nsec;
 			msg->block_header.id = 4229;
-			static ros::Publisher publisher = 
+			static ros::Publisher publisher =
 				g_nh->advertise<septentrio_gnss_driver::ExtEventINSNavCart>(
 					"/exteventinsnavcart", g_ROS_QUEUE_SIZE);
 			// Wait as long as necessary (only when reading from SBF/PCAP file)
@@ -3090,7 +3146,7 @@ bool io_comm_rx::RxMessage::read(std::string message_key, bool search)
 			publisher.publish(*msg);
 			break;
 		}
-		
+
 		if (septentrio_receiver_type_ == "gnss")
 		{
 			case evNavSatFix:
@@ -3389,7 +3445,7 @@ bool io_comm_rx::RxMessage::read(std::string message_key, bool search)
 				publisher.publish(*msg);
 				break;
 			}
-			
+
 		}
 		case evChannelStatus:
 		{
@@ -3476,7 +3532,7 @@ bool io_comm_rx::RxMessage::read(std::string message_key, bool search)
 			g_receiverstatus_has_arrived_diagnostics = false;
 			g_qualityind_has_arrived_diagnostics = false;
 			static ros::Publisher publisher =
-				g_nh->advertise<diagnostic_msgs::DiagnosticArray>("/civros/connectivity/nodes_status",
+				g_nh->advertise<diagnostic_msgs::DiagnosticStatus>("/civros/connectivity/nodes_status",
 																g_ROS_QUEUE_SIZE);
 			// Wait as long as necessary (only when reading from SBF/PCAP file)
 			if (g_read_from_sbf_log || g_read_from_pcap)
@@ -3498,8 +3554,8 @@ bool io_comm_rx::RxMessage::read(std::string message_key, bool search)
 						abs(int((g_unix_time.nsec - unix_old.nsec) / 1000))));
 				}
 			}
-			publisher.publish(*msg);
-			break; 
+			publisher.publish(msg->status[0]);
+			break;
 		}
 		case evReceiverStatus:
 		{
@@ -3518,7 +3574,7 @@ bool io_comm_rx::RxMessage::read(std::string message_key, bool search)
 			memcpy(&last_receiversetup_, data_, sizeof(last_receiversetup_));
 			break;
 		}
-		
+
 		// Many more to be implemented...
     }
     return true;
