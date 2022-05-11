@@ -1108,7 +1108,8 @@ diagnostic_msgs::DiagnosticArrayPtr io_comm_rx::RxMessage::DiagnosticArrayCallba
 	}
 	// Creating an array of values associated with the GNSS status
 	// ROS_INFO("gnss_status->values %d, qualityind_pos %d", last_qualityind_.n - 1 + 2, qualityind_pos);
-	gnss_status->values.resize(last_qualityind_.n > 0 ? static_cast<uint16_t>(last_qualityind_.n - 1 + 3) : static_cast<uint16_t>(3));
+    int additional_values = 4;
+	gnss_status->values.resize(last_qualityind_.n > 0 ? static_cast<uint16_t>(last_qualityind_.n - 1 + additional_values) : static_cast<uint16_t>(additional_values));
     uint16_t i = static_cast<uint16_t>(0);
 		// ROS_INFO("i before loop %d", i);
     for (; i != static_cast<uint16_t>(last_qualityind_.n); ++i)
@@ -1183,49 +1184,71 @@ diagnostic_msgs::DiagnosticArrayPtr io_comm_rx::RxMessage::DiagnosticArrayCallba
 		gnss_status->values[i].key = "Vertical Error";
     gnss_status->values[i].value = std::to_string(2 * std::sqrt(static_cast<double>(last_poscovgeodetic_.cov_hgthgt)));
 
-    ++i;
+    // ROS_INFO("last_measepoch_.n %d", last_measepoch_.n);
+    
     int cno_counter = 0;
     uint8_t sb1_size = last_measepoch_.sb1_size;
     uint8_t sb2_size = last_measepoch_.sb2_size;
     uint8_t* sb_start = &last_measepoch_.data[0];
     int32_t index = sb_start - &last_measepoch_.block_header.sync_1;
+    // ROS_INFO("last_measepoch_.n %d", last_measepoch_.n);
     for (int32_t i = 0; i < static_cast<int32_t>(last_measepoch_.n); ++i)
     {
-        // Define MeasEpochChannelType1 struct for the corresponding sub-block
+            // Define MeasEpochChannelType1 struct for the corresponding sub-block
         MeasEpochChannelType1* measepoch_channel_type1 =
             reinterpret_cast<MeasEpochChannelType1*>(
                 &last_measepoch_.block_header.sync_1 + index);
         // svid_in_sync.push_back(static_cast<int32_t>(measepoch_channel_type1->sv_id));
         uint8_t type_mask = 15; // We extract the first four bits using this mask.
         if (((measepoch_channel_type1->type & type_mask) ==
-             static_cast<uint8_t>(1)) ||
+            static_cast<uint8_t>(1)) ||
             ((measepoch_channel_type1->type & type_mask) == static_cast<uint8_t>(2)))
         {
+            // ROS_INFO("measepoch_channel_type1->cn0 1 or 2 = %d", static_cast<int32_t>(measepoch_channel_type1->cn0));
             if (static_cast<int32_t>(measepoch_channel_type1->cn0) / 4 > static_cast<int32_t>(45) )
                 cno_counter++;
         }
-				else
+        else
         {
-            if(static_cast<int32_t>(measepoch_channel_type1->cn0) / 4 +
-                static_cast<int32_t>(10) > static_cast<int32_t>(45))
-								cno_counter++;
+            // ROS_INFO("measepoch_channel_type1->cn0 other = %d", static_cast<int32_t>(measepoch_channel_type1->cn0));
+            if(static_cast<int32_t>(measepoch_channel_type1->cn0) / 4 + static_cast<int32_t>(10) > static_cast<int32_t>(45))
+                cno_counter++;
         }
         index += sb1_size;
         for (int32_t j = 0;
-             j < static_cast<int32_t>(measepoch_channel_type1->n_type2); j++)
+            j < static_cast<int32_t>(measepoch_channel_type1->n_type2); j++)
         {
             index += sb2_size;
         }
-		}
+    }
 
-		gnss_status->values[i].key = "CN0 > 45 Counter";
-		gnss_status->values[i].value = std::to_string(cno_counter);
+    ++i;
+    gnss_status->values[i].key = "CN0 > 45 Counter";
+    gnss_status->values[i].value = std::to_string(cno_counter);
 
+    // ROS_INFO("i before loop %d", i);
+    int bad_gain_counter = 0;
+    int good_gain_counter = 0;
+    for (uint16_t j = static_cast<uint16_t>(0); j < static_cast<uint16_t>((sizeof(last_receiverstatus_.agc_state)/sizeof(*last_receiverstatus_.agc_state))); ++j)
+    {
+        if(last_receiverstatus_.agc_state[j].gain > 30)
+        {
+            good_gain_counter++;
+        }
+        else
+        {
+            bad_gain_counter++;
+        }
+    }
+
+    ++i;
+    gnss_status->values[i].key = "Gain Counters";
+    gnss_status->values[i].value =  std::to_string(good_gain_counter) + " satellites with good gain, " +  std::to_string(bad_gain_counter) + " satellites with bad gain";
 
     gnss_status->hardware_id = serialnumber;
     gnss_status->name = ros::this_node::getName();
     gnss_status->message =
-            "Quality Indicators (from 0 for low quality to 10 for high quality, 15 if unknown)";
+            "Quality Indicators";
     msg->status.push_back(*gnss_status);
     return msg;
 };
