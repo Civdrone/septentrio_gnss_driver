@@ -1086,7 +1086,7 @@ diagnostic_msgs::DiagnosticArrayPtr io_comm_rx::RxMessage::DiagnosticArrayCallba
 			if (((last_qualityind_.indicators[i] & indicators_value_mask) >> 8) ==
 				static_cast<uint16_t>(0))
 			{
-				gnss_status->level = diagnostic_msgs::DiagnosticStatus::STALE;
+				gnss_status->level = diagnostic_msgs::DiagnosticStatus::ERROR;
 			} else if (((last_qualityind_.indicators[i] & indicators_value_mask) >>
 						8) == static_cast<uint16_t>(1) ||
 					((last_qualityind_.indicators[i] & indicators_value_mask) >>
