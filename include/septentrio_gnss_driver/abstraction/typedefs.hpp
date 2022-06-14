@@ -206,7 +206,7 @@ public:
         }
         catch (std::runtime_error& e)
         {
-            RCLCPP_WARN_STREAM(this->get_logger(), e.what());
+            RCLCPP_WARN(this->get_logger(), e.what());
             return false;
         }
         return true;
@@ -222,19 +222,19 @@ public:
         switch (logLevel)
         {
         case LogLevel::DEBUG:
-            RCLCPP_DEBUG_STREAM(this->get_logger(), s);
+            RCLCPP_DEBUG(this->get_logger(), s);
             break;
         case LogLevel::INFO:
-            RCLCPP_INFO_STREAM(this->get_logger(), s);
+            RCLCPP_INFO(this->get_logger(), s);
             break;
         case LogLevel::WARN:
-            RCLCPP_WARN_STREAM(this->get_logger(), s);
+            RCLCPP_WARN(this->get_logger(), s);
             break;
         case LogLevel::ERROR:
-            RCLCPP_ERROR_STREAM(this->get_logger(), s);
+            RCLCPP_ERROR(this->get_logger(), s);
             break;
         case LogLevel::FATAL:
-            RCLCPP_FATAL_STREAM(this->get_logger(), s);
+            RCLCPP_FATAL(this->get_logger(), s);
             break;    
         default:
             break;

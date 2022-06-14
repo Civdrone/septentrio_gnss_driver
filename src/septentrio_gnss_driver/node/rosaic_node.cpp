@@ -32,6 +32,7 @@
 #include <Eigen/Geometry> 
 
 #include <septentrio_gnss_driver/node/rosaic_node.hpp>
+#include <tf2/time.h>
 
 /**
  * @file rosaic_node.cpp
@@ -75,7 +76,7 @@ rosaic_node::ROSaicNode::ROSaicNode(const rclcpp::NodeOptions &options) :
     // and sets all its necessary corrections-related parameters
     if (!settings_.read_from_sbf_log && !settings_.read_from_pcap)
     {
-        IO_.configureRx();
+        // IO_.configureRx();
     }
 
     this->log(LogLevel::DEBUG, "Leaving ROSaicNode() constructor..");
@@ -381,7 +382,7 @@ void rosaic_node::ROSaicNode::getTransform(const std::string& targetFrame, const
         try
         {
             // try to get tf from source frame to target frame
-            T_s_t = tfBuffer_.lookupTransform(targetFrame, sourceFrame, rclcpp::Time(0));
+            T_s_t = tfBuffer_.lookupTransform(targetFrame, sourceFrame, tf2::TimePoint(tf2::IDuration::zero()), tf2::Duration(0));
             found = true;
         }
         catch (const tf2::TransformException& ex)

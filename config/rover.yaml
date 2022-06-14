@@ -2,10 +2,10 @@
 
 # GNSS/INS Parameters
 
-device: tcp://192.168.3.1:28784
+device: tcp://192.168.3.1:28785
 
 serial:
-  baudrate: 921600
+  baudrate: 115200
   rx_serial_port: USB1
   hw_flow_control: "off"
 
@@ -35,47 +35,47 @@ receiver_type: gnss
 
 multi_antenna: false
 
-datum: ETRS89
+datum: WGS84
 
 poi_to_arp:
   delta_e: 0.0
   delta_n: 0.0
-  delta_u: 0.0
+  delta_u: 0.611
 
 att_offset:
   heading: 0.0
   pitch: 0.0
 
-ant_type: Unknown
+ant_type: AS-ANT2BCAL NONE
 ant_serial_nr: Unknown
-ant_aux1_type: Unknown
+ant_aux1_type: AS-ANT2BCAL NONE
 ant_aux1_serial_nr: Unknown
 
 leap_seconds: 18
 
 polling_period:
-  pvt: 500
-  rest: 500
+  pvt: 100
+  rest: 100
 
 use_gnss_time: false
 
 ntrip_settings:
-  mode: off
-  caster: 0
-  caster_port: 0
-  username: 0
-  password: 0
-  mountpoint: 0
+  mode: Client
+  caster: 132.239.152.175
+  caster_port: 2103
+  username: CRTNCIVROBOT
+  password: CIVROBOTSURV
+  mountpoint: UCSF_RTCM3
   ntrip_version: v2
   send_gga: auto
-  rx_has_internet: false
-  rtcm_version: RTCMv2
+  rx_has_internet: true
+  rtcm_version: RTCMv3
   rx_input_corrections_tcp: 6666
   rx_input_corrections_serial: USB2
 
 publish:
   # For both GNSS and INS Rxs
-  navsatfix: false
+  navsatfix: true
   gpsfix: true
   gpgga: false
   gprmc: false
@@ -89,7 +89,7 @@ publish:
   atteuler: true
   attcoveuler: true
   pose: false
-  diagnostics: false
+  diagnostics: true
   # For GNSS Rx only
   gpgsa: false
   gpgsv: false

@@ -132,8 +132,8 @@ rclcpp_components_register_nodes(${library_name} "rosaic_node::ROSaicNode")
 #endif()
 
 # Export Targets
-ament_export_targets(${library_name} HAS_LIBRARY_TARGET)
-ament_export_dependencies(${dependencies} rosidl_default_runtime)
+# ament_export_targets(${library_name} HAS_LIBRARY_TARGET)
+# ament_export_dependencies(${dependencies} rosidl_default_runtime)
 
 # installation
 install(TARGETS
