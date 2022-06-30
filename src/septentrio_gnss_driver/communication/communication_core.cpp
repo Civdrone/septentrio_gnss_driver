@@ -189,7 +189,7 @@ void io_comm_rx::Comm_IO::initializeIO()
     } else
     {
         std::stringstream ss;
-        ss << "Device is unsupported. Perhaps you meant 'tcp://host:port' or 'file_name:xxx.sbf' or 'serial:/path/to/device'?";
+        ss << "Device " << settings_->device << " is unsupported. Perhaps you meant 'tcp://host:port' or 'file_name:xxx.sbf' or 'serial:/path/to/device'?";
         node_->log(LogLevel::ERROR, ss.str());
     }
     node_->log(LogLevel::DEBUG, "Leaving initializeIO() method");

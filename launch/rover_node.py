@@ -4,7 +4,7 @@ from launch_ros.actions import Node
 from launch_ros.actions import ComposableNodeContainer
 from launch_ros.descriptions import ComposableNode
 from launch.actions import DeclareLaunchArgument
-from launch.substitutions import LaunchConfiguration, Command, TextSubstitution
+from launch.substitutions import LaunchConfiguration, TextSubstitution
 from ament_index_python.packages import get_package_share_directory
 
 os.environ['RCUTILS_CONSOLE_OUTPUT_FORMAT'] = '{time}: [{name}] [{severity}]\t{message}'
@@ -17,25 +17,25 @@ def generate_launch_description():
 
     tf_imu = Node(
         package="tf2_ros",
-        executable="static_transform_publisher",
+        node_executable="static_transform_publisher",
         arguments = "0 0 0 0 0 0 base_link imu".split(' ')
     )
 
     tf_gnss = Node(
         package="tf2_ros",
-        executable="static_transform_publisher",
+        node_executable="static_transform_publisher",
         arguments = "0 0 0 0 0 0 imu gnss".split(' ')
     )
 
     tf_vsm = Node(
         package="tf2_ros",
-        executable="static_transform_publisher",
+        node_executable="static_transform_publisher",
         arguments = "0 0 0 0 0 0 imu vsm".split(' ')
     )
 
     tf_aux1 = Node(
         package="tf2_ros",
-        executable="static_transform_publisher",
+        node_executable="static_transform_publisher",
         arguments = "0 0 0 0 0 0 imu aux1".split(' ')
     )
 
@@ -50,8 +50,11 @@ def generate_launch_description():
 
     node = Node(
             package='septentrio_gnss_driver',
-            executable='septentrio_gnss_driver_node',
-            name='septentrio_gnss_driver',
-            parameters=[LaunchConfiguration(name_arg_file_path)])
+            node_executable='septentrio_gnss_driver_node',
+            # node_name='septentrio_gnss_driver',
+            parameters=[LaunchConfiguration(name_arg_file_path)],
+            output='screen',
+            prefix=['stdbuf -o L']  #set line-buffering in stdout
+            )
 
     return launch.LaunchDescription([arg_file_name, arg_file_path, node, tf_imu, tf_gnss, tf_vsm, tf_aux1])
