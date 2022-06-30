@@ -56,7 +56,6 @@
   <depend>gps_common</depend>
   <depend>boost</depend>
   <depend>libpcap</depend>
-  <depend>connectivity_client</depend>
    
 
   <build_depend>cpp_common</build_depend>

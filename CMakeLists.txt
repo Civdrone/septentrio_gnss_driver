@@ -19,7 +19,6 @@ find_package(catkin REQUIRED COMPONENTS
   diagnostic_msgs
   gps_common
   message_generation
-  connectivity_client
 )
 
 ## System dependencies are found with CMake's conventions
@@ -156,7 +155,6 @@ include_directories(
   include
   ${catkin_INCLUDE_DIRS}
   ${Boost_INCLUDE_DIRS}
-  ${connectivity_client_INCLUDE_DIRS}
 )
 
 ## Add cmake target dependencies of the library
@@ -197,7 +195,6 @@ add_dependencies(${PROJECT_NAME}_node
 
 ## Specify libraries to link a library or executable target against
 target_link_libraries(${PROJECT_NAME}_node 
-   ${connectivity_client_LIBRARIES}
    ${catkin_LIBRARIES}
    ${Boost_LIBRARIES}
    ${libpcap_LIBRARIES}

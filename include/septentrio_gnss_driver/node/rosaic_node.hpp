@@ -127,8 +127,6 @@
 #include <boost/regex.hpp>
 // ROSaic includes
 #include <septentrio_gnss_driver/communication/communication_core.hpp>
-#include <connectivity_client/connectivity_client.hpp>
-using namespace civros::connectivity;
 
 extern bool g_publish_gpgga;
 extern bool g_publish_pvtcartesian;
@@ -250,7 +248,7 @@ namespace rosaic_node {
      * @class ROSaicNode
      * @brief This class represents the ROsaic node, to be extended..
      */
-    class ROSaicNode : public ConnectivityClient
+    class ROSaicNode
     {
     public:
         //! The constructor initializes and runs the ROSaic node, if everything works

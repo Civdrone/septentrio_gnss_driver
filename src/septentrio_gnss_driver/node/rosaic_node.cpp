@@ -37,23 +37,9 @@
  * @brief The heart of the ROSaic driver: The ROS node that represents it
  */
 
-rosaic_node::ROSaicNode::ROSaicNode() //:
-    // ConnectivityClient(g_nh.get())
+rosaic_node::ROSaicNode::ROSaicNode()
 {
     ROS_DEBUG("Called ROSaicNode() constructor..");
-    // InitializeConnectivity([this](diagnostic_msgs::DiagnosticStatus& msg)
-    //     {
-    //         if (connected_)
-    //         {
-    //             msg.level = diagnostic_msgs::DiagnosticStatus::OK;
-    //             msg.message = "connected";
-    //         }
-    //         else
-    //         {
-    //             msg.level = diagnostic_msgs::DiagnosticStatus::WARN;
-    //             msg.message = "disconnected";
-    //         }
-    //     });
 
     // Parameters must be set before initializing IO
     connected_ = false;
