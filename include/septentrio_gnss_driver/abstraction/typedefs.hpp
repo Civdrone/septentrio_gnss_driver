@@ -222,19 +222,19 @@ public:
         switch (logLevel)
         {
         case LogLevel::DEBUG:
-            RCLCPP_DEBUG(this->get_logger(), s);
+            RCLCPP_DEBUG(this->get_logger(), s.c_str());
             break;
         case LogLevel::INFO:
-            RCLCPP_INFO(this->get_logger(), s);
+            RCLCPP_INFO(this->get_logger(), s.c_str());
             break;
         case LogLevel::WARN:
-            RCLCPP_WARN(this->get_logger(), s);
+            RCLCPP_WARN(this->get_logger(), s.c_str());
             break;
         case LogLevel::ERROR:
-            RCLCPP_ERROR(this->get_logger(), s);
+            RCLCPP_ERROR(this->get_logger(), s.c_str());
             break;
         case LogLevel::FATAL:
-            RCLCPP_FATAL(this->get_logger(), s);
+            RCLCPP_FATAL(this->get_logger(), s.c_str());
             break;    
         default:
             break;

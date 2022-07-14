@@ -29,7 +29,7 @@
 // *****************************************************************************
 
 #include <thread>
-
+#include <cstdlib>
 #include <GeographicLib/UTMUPS.hpp>
 
 #include <septentrio_gnss_driver/communication/rx_message.hpp>
@@ -76,24 +76,24 @@ io_comm_rx::RxMessage::PoseWithCovarianceStampedCallback()
         msg.pose.pose.position.y = rad2deg(last_pvtgeodetic_.latitude);
         msg.pose.pose.position.z = last_pvtgeodetic_.height;
         // Filling in the covariance data in row-major order
-        msg.pose.covariance[0]  = last_poscovgeodetic_.cov_lonlon;
+        msg.pose.covariance[0]  = abs(last_poscovgeodetic_.cov_lonlon);
         msg.pose.covariance[1]  = last_poscovgeodetic_.cov_latlon;
         msg.pose.covariance[2]  = last_poscovgeodetic_.cov_lonhgt;
         msg.pose.covariance[6]  = last_poscovgeodetic_.cov_latlon;
-        msg.pose.covariance[7]  = last_poscovgeodetic_.cov_latlat;
+        msg.pose.covariance[7]  = abs(last_poscovgeodetic_.cov_latlat);
         msg.pose.covariance[8]  = last_poscovgeodetic_.cov_lathgt;
         msg.pose.covariance[12] = last_poscovgeodetic_.cov_lonhgt;
         msg.pose.covariance[13] = last_poscovgeodetic_.cov_lathgt;
-        msg.pose.covariance[14] = last_poscovgeodetic_.cov_hgthgt;
-        msg.pose.covariance[21] = deg2radSq(last_attcoveuler_.cov_rollroll);
+        msg.pose.covariance[14] = abs(last_poscovgeodetic_.cov_hgthgt);
+        msg.pose.covariance[21] = abs(deg2radSq(last_attcoveuler_.cov_rollroll));
         msg.pose.covariance[22] = deg2radSq(last_attcoveuler_.cov_pitchroll);
         msg.pose.covariance[23] = deg2radSq(last_attcoveuler_.cov_headroll);
         msg.pose.covariance[27] = deg2radSq(last_attcoveuler_.cov_pitchroll);
-        msg.pose.covariance[28] = deg2radSq(last_attcoveuler_.cov_pitchpitch);
+        msg.pose.covariance[28] = abs(deg2radSq(last_attcoveuler_.cov_pitchpitch));
         msg.pose.covariance[29] = deg2radSq(last_attcoveuler_.cov_headpitch);
         msg.pose.covariance[33] = deg2radSq(last_attcoveuler_.cov_headroll);
         msg.pose.covariance[34] = deg2radSq(last_attcoveuler_.cov_headpitch);
-        msg.pose.covariance[35] = deg2radSq(last_attcoveuler_.cov_headhead);
+        msg.pose.covariance[35] = abs(deg2radSq(last_attcoveuler_.cov_headhead));
 	}
     if (settings_->septentrio_receiver_type == "ins")
     {
@@ -146,18 +146,18 @@ io_comm_rx::RxMessage::PoseWithCovarianceStampedCallback()
         {
             // Attitude autocov
 			if (validValue(last_insnavgeod_.roll_std_dev))
-            	msg.pose.covariance[21] = parsing_utilities::square(deg2rad(last_insnavgeod_.
-                                            roll_std_dev));
+            	msg.pose.covariance[21] = abs(parsing_utilities::square(deg2rad(last_insnavgeod_.
+                                            roll_std_dev)));
 			else
 				msg.pose.covariance[21] = -1.0;
 			if (validValue(last_insnavgeod_.pitch_std_dev))	
-            	msg.pose.covariance[28] = parsing_utilities::square(deg2rad(last_insnavgeod_.
-                                            pitch_std_dev));
+            	msg.pose.covariance[28] = abs(parsing_utilities::square(deg2rad(last_insnavgeod_.
+                                            pitch_std_dev)));
 			else
 				msg.pose.covariance[28] = -1.0;
 			if (validValue(last_insnavgeod_.heading_std_dev))
-            	msg.pose.covariance[35] = parsing_utilities::square(deg2rad(last_insnavgeod_.
-                                            heading_std_dev));
+            	msg.pose.covariance[35] = abs(parsing_utilities::square(deg2rad(last_insnavgeod_.
+                                            heading_std_dev)));            	
 			else
 				msg.pose.covariance[35] = -1.0;
         }
@@ -843,15 +843,15 @@ NavSatFixMsg io_comm_rx::RxMessage::NavSatFixCallback()
         msg.latitude  = rad2deg(last_pvtgeodetic_.latitude);
         msg.longitude = rad2deg(last_pvtgeodetic_.longitude);
         msg.altitude  = last_pvtgeodetic_.height;
-        msg.position_covariance[0] =last_poscovgeodetic_.cov_lonlon;
+        msg.position_covariance[0] =abs(last_poscovgeodetic_.cov_lonlon);
         msg.position_covariance[1] =last_poscovgeodetic_.cov_latlon;
         msg.position_covariance[2] =last_poscovgeodetic_.cov_lonhgt;
         msg.position_covariance[3] =last_poscovgeodetic_.cov_latlon;
-        msg.position_covariance[4] =last_poscovgeodetic_.cov_latlat;
+        msg.position_covariance[4] =abs(last_poscovgeodetic_.cov_latlat);
         msg.position_covariance[5] =last_poscovgeodetic_.cov_lathgt;
         msg.position_covariance[6] =last_poscovgeodetic_.cov_lonhgt;
         msg.position_covariance[7] =last_poscovgeodetic_.cov_lathgt;
-        msg.position_covariance[8] =last_poscovgeodetic_.cov_hgthgt;
+        msg.position_covariance[8] =abs(last_poscovgeodetic_.cov_hgthgt);
         msg.position_covariance_type = NavSatFixMsg::COVARIANCE_TYPE_KNOWN;
         return msg;
     }
@@ -924,12 +924,12 @@ NavSatFixMsg io_comm_rx::RxMessage::NavSatFixCallback()
 
 		if((last_insnavgeod_.sb_list & 1) !=0)
 		{
-			msg.position_covariance[0] = parsing_utilities::square(last_insnavgeod_.
-											longitude_std_dev);
-			msg.position_covariance[4] = parsing_utilities::square(last_insnavgeod_.
-											latitude_std_dev);
-			msg.position_covariance[8] = parsing_utilities::square(last_insnavgeod_.
-											height_std_dev);
+			msg.position_covariance[0] = parsing_utilities::square(abs(last_insnavgeod_.
+											longitude_std_dev));
+			msg.position_covariance[4] = parsing_utilities::square(abs(last_insnavgeod_.
+											latitude_std_dev));
+			msg.position_covariance[8] = parsing_utilities::square(abs(last_insnavgeod_.
+											height_std_dev));
 		}
 		if((last_insnavgeod_.sb_list & 32) !=0)
 		{

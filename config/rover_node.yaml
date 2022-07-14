@@ -10,7 +10,7 @@ septentrio_gnss:
       rx_serial_port: USB1
       hw_flow_control: "off"
 
-    frame_id: gnss
+    frame_id: back_gps_link
 
     imu_frame_id: imu
 
@@ -85,7 +85,7 @@ septentrio_gnss:
       velcovgeodetic: true
       atteuler: true
       attcoveuler: true
-      pose: false
+      pose: true
       diagnostics: true
       # For GNSS Rx only
       gpgsa: false
@@ -99,7 +99,7 @@ septentrio_gnss:
       exteventinsnavcart: false
       exteventinsnavgeod: false
       imu: false
-      localization: true
+      localization: false
       tf: false
       
     # INS-Specific Parameters
@@ -132,4 +132,4 @@ septentrio_gnss:
 
     # logger
 
-    activate_debug_log: true
+    activate_debug_log: false
