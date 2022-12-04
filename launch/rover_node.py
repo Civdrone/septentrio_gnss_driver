@@ -26,7 +26,7 @@ def generate_launch_description():
 
     node = Node(
             package='septentrio_gnss_driver',
-            executable='septentrio_gnss_driver_node',
+            node_executable='septentrio_gnss_driver_node',
             # node_name='septentrio_gnss_driver',
             parameters=[LaunchConfiguration(name_arg_file_path)],
             output='screen',
