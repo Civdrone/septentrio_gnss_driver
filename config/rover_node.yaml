@@ -26,7 +26,7 @@ septentrio_gnss:
 
     lock_utm_zone: true
 
-    use_ros_axis_orientation: true
+    use_ros_axis_orientation: false
 
     receiver_type: gnss    
 
