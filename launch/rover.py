@@ -18,24 +18,28 @@ def generate_launch_description():
     tf_imu = Node(
         package="tf2_ros",
         executable="static_transform_publisher",
+        respawn=True,
         arguments = "0 0 0 0 0 0 base_link imu".split(' ')
     )
 
     tf_gnss = Node(
         package="tf2_ros",
         executable="static_transform_publisher",
+        respawn=True,
         arguments = "0 0 0 0 0 0 imu gnss".split(' ')
     )
 
     tf_vsm = Node(
         package="tf2_ros",
         executable="static_transform_publisher",
+        respawn=True,
         arguments = "0 0 0 0 0 0 imu vsm".split(' ')
     )
 
     tf_aux1 = Node(
         package="tf2_ros",
         executable="static_transform_publisher",
+        respawn=True,
         arguments = "0 0 0 0 0 0 imu aux1".split(' ')
     )
 
@@ -60,6 +64,7 @@ def generate_launch_description():
         namespace='septentrio_gnss_driver',
         package='rclcpp_components',
         executable='component_container',
+        respawn=True,
         emulate_tty=True,
         composable_node_descriptions=[composable_node],
         output='screen'
