@@ -1,0 +1,678 @@
+name: dev-ci
+
+on:
+  workflow_dispatch:
+    inputs:
+      packages_build:
+        description: 'input for what packages ci should build seperated by spaces'
+        required: true
+        default: ''
+  push:
+    # branches-ignore:
+      # - 'v[0-9]+.[0-9]+'
+  pull_request:
+    branches:
+      - develop
+      - 'v[0-9]+.[0-9]+'
+          
+concurrency: lock-${{ github.ref }}
+
+env:
+  WORKSPACE_PATH: ${{ github.workspace }}
+  COMMIT_ID: ${{ github.sha }}
+  BUILD_NUMBER: ${{ github.run_number }}
+  BRANCH: ${{ github.ref_name }}
+  REPO_OWNER: ${{ github.repository_owner }}
+  REPO: ${{ github.event.repository.name }}
+  ROS_DIR: $HOME/git/ros2_ws/src/
+  ARTIFACTORY_ROSDEP_FILE: ${{ secrets.rosdep_map_file }}
+  ARTIFACTORY_TOKEN: ${{ secrets.artifactory_token }}
+  ARTIFACTORY_URL: civrobotics.jfrog.io/artifactory/civros-unstable
+  GH_TOKEN: ${{ secrets.gh_token }}
+  ECR_DOCKER_IMAGE: 543341912885.dkr.ecr.us-east-1.amazonaws.com/civros_container:latest
+  AWS_REGION: us-east-1
+
+jobs:
+  build_amd:
+    runs-on: ubuntu-20.04
+    steps:
+
+      - name: checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: list all
+        run: |
+          pwd
+          ls
+
+      - name: Check release full build
+        if: contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$')
+        run: |
+          # Run the command to check if the full build tag exists in civros-release
+          FULL_BUILD_TAG=$(git ls-remote --refs --tags https://github.com/Civdrone/civros-release.git "${BRANCH}-promoted" | awk '{print $2}' | sed 's/refs\/tags\///')
+          if [ -z "$FULL_BUILD_TAG" ]; then
+            echo "FULL_BUILD_TAG variable is empty"
+          else
+            echo "TAG variable is not empty, value is: $FULL_BUILD_TAG"
+            echo "FULL_BUILD_TAG=true" >> $GITHUB_ENV
+          fi
+
+      - name: Get unique changd packages
+      ## checks if trigger on push event, on release branch also checks for full build tag
+        if: ${{ github.event_name == 'push' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && github.event_name == 'push' }}
+        run: |
+          mapfile -t CHANGED_FILES < <(git diff --name-only ${{ github.event.before }} ${{ github.event.after }})
+          # Extract the parent directory of each file and remove duplicates and directories starting with a period
+          unique_packages=()
+          for path in "${CHANGED_FILES[@]}"; do
+              if [[ $path == *"/"* ]]; then
+                  parent_dir=$(dirname "$path")
+                  if [[ ! "$parent_dir" =~ ^\.(.*)$ && -d "$parent_dir" ]]; then
+                      package="${parent_dir##*/}"
+                      echo "Package name: $package"
+                      if [[ "$package" != .* ]]; then
+                          echo "Adding package name to unique_packages list: $package"
+                          unique_packages+=("$package")
+                      fi
+                  fi
+              fi
+          done
+
+          # Remove duplicates from the unique_packages list
+          unique_packages=($(for path in "${CHANGED_FILES[@]}"; do
+              if [[ $path == *"/"* ]]; then # check if path contains '/'
+                  package="${path%%/*}"
+                  if [[ "$package" != .* ]]; then
+                  echo "$package"
+                  fi
+              fi
+          done | sort -u))
+
+          # Output the list of unique packages
+          echo "Changed packages: ${unique_packages[@]}"
+
+          # Set the `changed_packages` environment variable with the list of unique packages
+          echo "changed_packages=${unique_packages[*]}" >> $GITHUB_ENV
+
+      - name: Get workflow manual input
+      ## checks if trigger on dispatch event, on release branch also checks for full build tag
+        if: ${{ github.event_name == 'workflow_dispatch' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && github.event_name == 'workflow_dispatch' }}
+        run: | 
+          echo "${{ github.event.inputs.packages_build }}"
+          echo "changed_packages=${{ github.event.inputs.packages_build }}" >> $GITHUB_ENV
+
+      - name: Update artifactory server
+      ## checks if changed packages, on release branch also checks for full build tag
+        if: ${{ env.changed_packages != '' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && env.changed_packages != '' }}
+        run: |
+          echo $REPO_OWNER
+          echo $REPO
+          echo $BRANCH
+          branches=$(git for-each-ref --sort=-committerdate refs/remotes/origin --format='%(refname:short)' | cut -d / -f 2- | tr '\n' ' ')
+          default_branch=$(curl -H "Authorization: token $GH_TOKEN" -s https://api.github.com/repos/$REPO_OWNER/$REPO | jq -r '.default_branch')
+          echo $default_branch
+          sudo touch /etc/apt/sources.list.d/civ.list
+          sudo bash -c 'cat > /etc/apt/preferences.d/10-civ.pref << EOF
+          Package: *
+          Pin: release c='"$BRANCH"'
+          Pin-Priority: 1001
+          
+          EOF'          
+          sudo cat /etc/apt/preferences.d/10-civ.pref
+          for branch in $branches; do
+              echo "Branch name: $branch"
+          done
+          sudo sh -c "echo 'deb https://amir_b:$ARTIFACTORY_TOKEN@$ARTIFACTORY_URL galactic $BRANCH' >> /etc/apt/sources.list.d/civ.list"
+          sudo sh -c "echo 'deb https://amir_b:$ARTIFACTORY_TOKEN@$ARTIFACTORY_URL galactic $default_branch' >> /etc/apt/sources.list.d/civ.list"
+          sudo sh -c "echo 'deb https://amir_b:$ARTIFACTORY_TOKEN@$ARTIFACTORY_URL galactic main' >> /etc/apt/sources.list.d/civ.list"
+          sudo cat /etc/apt/sources.list.d/civ.list
+          wget -O civrobotics.pub https://amir_b:$ARTIFACTORY_TOKEN@civrobotics.jfrog.io/artifactory/api/security/keypair/debianKeys/public
+          gpg --import civrobotics.pub
+          gpg --list-keys
+          sudo apt-key add civrobotics.pub
+          sudo apt update
+
+      - name: install external packages
+        ## checks if changed packages, on release branch also checks for full build tag
+        if: ${{ env.changed_packages != '' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && env.changed_packages != '' }}
+        run: |
+          mkdir external_packages
+          cd external_packages
+          echo "Json Package Install"
+          wget https://github.com/nlohmann/json/releases/download/v3.10.4/include.zip
+          sudo unzip include.zip -d /usr/
+          echo "Serial Port Package Install"
+          git clone https://Amir-civ:$GH_TOKEN@github.com/Civdrone/CppLinuxSerial.git
+          cd CppLinuxSerial
+          git checkout v2.3.0
+          mkdir build
+          cd build
+          cmake ..
+          sudo make install
+
+      - name: Ros Install
+        ## checks if changed packages, on release branch also checks for full build tag
+        if: ${{ env.changed_packages != '' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && env.changed_packages != '' }}
+        run: |
+          sudo apt update && sudo apt install locales
+          sudo locale-gen en_US en_US.UTF-8
+          sudo update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8
+          export LANG=en_US.UTF-8
+          locale
+          sudo apt install software-properties-common -y
+          sudo add-apt-repository universe
+          sudo apt update && sudo apt install curl gnupg lsb-release -y
+          curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key  -o /usr/share/keyrings/ros-archive-keyring.gpg
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(source /etc/os-release && echo $UBUNTU_CODENAME) main" | sudo tee /etc/apt/sources.list.d/ros2.list > /dev/null
+          sudo apt update
+          sudo apt install ros-galactic-ros-base
+
+      - name: check os and ros versions
+        ## checks if changed packages, on release branch also checks for full build tag
+        if: ${{ env.changed_packages != '' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && env.changed_packages != '' }}
+        run: |
+          lsb_release -a
+          dpkg --print-architecture
+          ls /opt/ros/
+
+      - name: additional env installations
+        ## checks if changed packages, on release branch also checks for full build tag
+        if: ${{ env.changed_packages != '' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && env.changed_packages != '' }}
+        run: |
+          pip3 install scipy
+          sudo apt-get install ros-galactic-pluginlib -y
+          sudo apt-get install ros-galactic-nmea-msgs -y
+          sudo apt update
+          sudo apt install ros-galactic-robot-localization -y
+          sudo apt install ros-galactic-launch* -y
+          sudo apt install ros-galactic-gps-msgs -y
+          sudo apt install python3-pip -y
+          sudo -H pip3 install -U argcomplete
+          sudo apt install python3-colcon-common-extensions -y
+          sudo apt install ros-dev-tools -y
+          sudo apt install libboost-all-dev -y
+          sudo apt install libpcap-dev -y
+          sudo apt install python3-bloom fakeroot dh-make -y
+          pip install setuptools==58.2.0
+   
+      - name: install rosdep
+        ## checks if changed packages, on release branch also checks for full build tag
+        if: ${{ env.changed_packages != '' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && env.changed_packages != '' }}
+        run: |
+          echo "Install rosdep"
+          sudo apt upgrade -y
+          sudo apt install python3-rosdep -y
+          sudo rosdep init -y 
+          sudo rosdep fix-permissions
+          rosdep update -y
+          sudo curl -u "Amir-civ:$GH_TOKEN" -L $ARTIFACTORY_ROSDEP_FILE -o /etc/ros/rosdep/sources.list.d/local.yaml
+          if [ $? -eq 0 ]; then
+            echo "YAML file downloaded successfully!"
+          else
+            echo "Failed to download YAML file."
+          fi
+          sudo sh -c 'echo "yaml file:///etc/ros/rosdep/sources.list.d/local.yaml" >> /etc/ros/rosdep/sources.list.d/20-default.list'
+
+      - name: install mavros
+        ## checks if changed packages, on release branch also checks for full build tag
+        if: ${{ env.changed_packages != '' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && env.changed_packages != '' }}
+        run: |
+          wget https://raw.githubusercontent.com/mavlink/mavros/master/mavros/scripts/install_geographiclib_datasets.sh
+          sudo apt-get install ros-galactic-mavros ros-galactic-mavros-extras -y
+          sudo chmod +x ./install_geographiclib_datasets.sh && sudo ./install_geographiclib_datasets.sh
+
+      - name: install rosbridge server
+        ## checks if changed packages, on release branch also checks for full build tag
+        if: ${{ env.changed_packages != '' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && env.changed_packages != '' }}
+        run: sudo apt install ros-galactic-rosbridge-server -y
+
+      - name: Build deb package
+        ## checks if changed packages, on release branch also checks for full build tag
+        if: ${{ env.changed_packages != '' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && env.changed_packages != '' }}
+        id: build_deb_package
+        run: |
+          IFS=' ' read -ra packages <<< "$changed_packages"
+          for package in "${packages[@]}"; do
+            pwd
+            ls
+            cd "$package"
+            pwd
+            ls
+            sed -E -i "s/<version>([0-9]+)\.([0-9]+)\.([0-9]+)<\/version>/<version>\1.\2.${BUILD_NUMBER}<\/version>/" package.xml
+            source /opt/ros/galactic/setup.bash
+            rosdep update --include-eol-distros
+            bloom-generate rosdebian
+            sudo apt update
+            sudo apt build-dep .
+            dpkg-buildpackage -b -rfakeroot -us -uc
+            cd ..
+            ls | grep .deb
+          done
+          if ls *.deb 1>/dev/null 2>&1; then
+            built_packages=true
+          fi
+          echo "built_packages=$built_packages" >> $GITHUB_ENV
+
+      - name: Push to artifactory server
+        ## checks if changed packages & built packages, on release branch also checks for full build tag
+        if: ${{ env.changed_packages != '' && env.built_packages == 'true' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && env.changed_packages != '' && env.built_packages == 'true' }}
+        run: |
+          PACKS=($(ls ${1:-.}/*.deb))
+          echo "$PACKS"
+          for pack in "${PACKS[@]}"
+          do
+              name=$(basename "$pack")
+              printf "\nPublishing %s\n" "$name"
+              
+              dirname=$(cut -d '_' -f1 <<< "$name")
+              #push them to Artifactory
+              curl --fail -uamir_b:$ARTIFACTORY_TOKEN -XPUT "https://$ARTIFACTORY_URL/galactic/${dirname}/${BRANCH}/${name};deb.distribution=galactic;deb.component=$BRANCH;deb.architecture=$(dpkg --print-architecture);deb.build_number=$BUILD_NUMBER" -T $pack -o $dirname.json
+              cat $dirname.json
+          done
+
+      - name: Update rosdep yaml file
+        ## checks if changed packages & built packages, on release branch also checks for full build tag
+        if: ${{ env.changed_packages != '' && env.built_packages == 'true' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && env.changed_packages != '' && env.built_packages == 'true' }}
+        run: |
+          git clone https://"Amir-civ:$GH_TOKEN"@github.com/Civdrone/scripts.git
+          cd scripts
+          git checkout ci-github-actions
+          IFS=' ' read -ra packages <<< "$changed_packages"
+          for package in "${packages[@]}"; do
+            package_exists=$(yq ".$package" ./docker_container/local.yaml)
+            if [[ $package_exists = null ]]; then
+              # Define the apt package
+              apt_package=$(echo "$package" | sed 's/_/-/g; s/^/ros-galactic-/')
+              
+              # Create the YAML content for the new package
+              new_yaml_content="${package}:\n  ubuntu:\n    focal: [${apt_package}]"
+              
+              # Read the existing YAML content from the file
+              existing_yaml_content=$(sudo cat ./docker_container/local.yaml)
+              
+              # Append the new package information to the existing YAML content
+              yaml_content="${existing_yaml_content}\n${new_yaml_content}"
+              
+              # Write the modified YAML content to the file
+              echo -e "${yaml_content}" > ./docker_container/local.yaml
+              # Push changes to remote
+              git config --global user.email "amir@civrobotics.com"
+              git config --global user.name "amir-ci"
+              git add .
+              git commit -m "changed rosdep yaml file from ci, owner/repo: ${REPO}, branch: ${BRANCH}  build number: ${BUILD_NUMBER}."
+              git push origin ci-github-actions
+            else
+              echo "$package exists"
+            fi
+          done
+
+
+      - name: Update commit status and cencel all workflows with the same branch on failure
+        if: ${{ failure() }}
+        run: |
+          sudo curl -u "Amir-civ:$GH_TOKEN" -L https://raw.githubusercontent.com/$REPO_OWNER/civros-release/main/repo.csv -o ./repo.csv
+          if [ $? -eq 0 ]; then
+              echo "repo.csv file downloaded successfully!"
+          else
+              echo "Failed to download repo.csv file."
+          fi
+          # Read the CSV file and cencel repositories
+          while IFS=, read -r repo || [ -n "$repo" ]; do
+            # Get the most recent workflow run ID for the specified branch
+            run_id=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/$REPO_OWNER/$repo/actions/runs?branch=$BRANCH&event=push" \
+            | jq -r '.workflow_runs[0].id')
+
+            # Cancel the workflow run
+            curl -X POST -s -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/$REPO_OWNER/$repo/actions/runs/$run_id/cancel"
+
+            echo "Workflow run $run_id has been canceled"
+          done < ./repo.csv
+          # update commit status
+          curl -X POST -H "Authorization: token $GH_TOKEN" -H "Accept: application/vnd.github.v3+json" https://api.github.com/repos/$REPO_OWNER/$REPO/statuses/${COMMIT_ID} -d '{"state": "failure", "context": "continuous-integration/build-${BUILD_NUMBER"}'
+
+      - name: Discard Local Changes
+        ## checks if changed packages, on release branch also checks for full build tag
+        if: ${{ env.changed_packages != '' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && env.changed_packages != '' }}
+        run: |
+          cd $GITHUB_WORKSPACE
+          git checkout -- .
+          git clean -f
+          
+      - name: Post to a Slack channel
+        if: ${{ always() }}
+        id: slack
+        uses: slackapi/slack-github-action@v1.23.0
+        with:
+          # Slack channel id, channel name, or user id to post message.
+          # See also: https://api.slack.com/methods/chat.postMessage#channels
+          # You can pass in multiple channels to post to by providing a comma-delimited list of channel IDs.
+          channel-id: 'C051SPVTW2Z'
+          # For posting a simple plain text message
+          slack-message: "GitHub build result: ${{ job.status }}\nWorkflow: ${{ github.job }}\nRepository: ${{ github.event.repository.name }}\nBranch: ${{ github.ref_name }}\nBuild Number: ${{ github.run_number }}\n${{ github.event.pull_request.html_url || github.event.head_commit.url }}"
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+
+  build_arm:
+    runs-on: ubuntu-20.04
+    steps:
+
+    - name: checkout
+      uses: actions/checkout@v3
+      with:
+        fetch-depth: 0
+
+    - name: check os and ros versions
+      run: |
+        lsb_release -a
+        dpkg --print-architecture
+
+    - name: list all
+      run: |
+        pwd
+        ls
+
+    - name: Check release full build
+      if: contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$')
+      run: |
+        # Run the command to check if the full build tag exists in civros-release
+        FULL_BUILD_TAG=$(git ls-remote --refs --tags https://github.com/Civdrone/civros-release.git "${BRANCH}-promoted" | awk '{print $2}' | sed 's/refs\/tags\///')
+        if [ -z "$FULL_BUILD_TAG" ]; then
+          echo "FULL_BUILD_TAG variable is empty"
+        else
+          echo "TAG variable is not empty, value is: $FULL_BUILD_TAG"
+          echo "FULL_BUILD_TAG=true" >> $GITHUB_ENV
+        fi
+        
+    - name: Get unique changd packages and store it as env variable
+      ## checks if trigger on push event, on release branch also checks for full build tag
+      if: ${{ github.event_name == 'push' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && github.event_name == 'push' }}
+      run: |
+        mapfile -t CHANGED_FILES < <(git diff --name-only ${{ github.event.before }} ${{ github.event.after }})
+        # Extract the parent directory of each file and remove duplicates and directories starting with a period
+        unique_packages=()
+        for path in "${CHANGED_FILES[@]}"; do
+            if [[ $path == *"/"* ]]; then
+                parent_dir=$(dirname "$path")
+                if [[ ! "$parent_dir" =~ ^\.(.*)$ && -d "$parent_dir" ]]; then
+                    package="${parent_dir##*/}"
+                    echo "Package name: $package"
+                    if [[ "$package" != .* ]]; then
+                        echo "Adding package name to unique_packages list: $package"
+                        unique_packages+=("$package")
+                    fi
+                fi
+            fi
+        done
+
+        # Remove duplicates from the unique_packages list
+        unique_packages=($(for path in "${CHANGED_FILES[@]}"; do
+            if [[ $path == *"/"* ]]; then # check if path contains '/'
+                package="${path%%/*}"
+                if [[ "$package" != .* ]]; then
+                echo "$package"
+                fi
+            fi
+        done | sort -u))
+
+        # Output the list of unique packages
+        echo "Changed packages: ${unique_packages[@]}"
+
+        # Set the `changed_packages` environment variable with the list of unique packages
+        echo "changed_packages=${unique_packages[*]}" >> $GITHUB_ENV
+
+    - name: Get workflow manual input and store it as env variable
+      ## checks if trigger on dispatch event, on release branch also checks for full build tag
+      if: ${{ github.event_name == 'workflow_dispatch' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && github.event_name == 'workflow_dispatch' }}
+      run: | 
+        echo "${{ github.event.inputs.packages_build }}"
+        echo "changed_packages=${{ github.event.inputs.packages_build }}" >> $GITHUB_ENV
+
+    - name: Configure AWS credentials
+      ## checks if changed packages, on release branch also checks for full build tag
+      if: ${{ env.changed_packages != '' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && env.changed_packages != '' }}
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Set up QEMU
+      ## checks if changed packages, on release branch also checks for full build tag
+      if: ${{ env.changed_packages != '' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && env.changed_packages != '' }}
+      uses: docker/setup-qemu-action@v2
+
+    - name: Run docker and build deb
+      ## checks if changed packages, on release branch also checks for full build tag
+      if: ${{ env.changed_packages != '' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && env.changed_packages != '' }}
+      run: |
+        aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 543341912885.dkr.ecr.us-east-1.amazonaws.com        # changed_packages_string=$(printf '%s ' "${changed_packages[@]}")
+        docker run -itd --name cross-c --entrypoint=/bin/bash -v $(pwd):/home/civrobotics/cross -e ARTIFACTORY_TOKEN=$ARTIFACTORY_TOKEN -e ARTIFACTORY_URL=$ARTIFACTORY_URL -e GH_TOKEN=$GH_TOKEN -e REPO_OWNER=$REPO_OWNER -e REPO=$REPO -e BRANCH=$BRANCH -e BUILD_NUMBER=${{ github.run_number }} -e changed_packages="$changed_packages" ${{ env.ECR_DOCKER_IMAGE }}
+        docker exec cross-c bash /usr/local/bin/cross_deb_entrypoint.sh
+
+    - name: Update commit status and cencel all workflows with the same branch on failure
+      if: ${{ failure() }}
+      run: |
+        sudo curl -u "Amir-civ:$GH_TOKEN" -L https://raw.githubusercontent.com/$REPO_OWNER/civros-release/main/repo.csv -o ./repo.csv
+        if [ $? -eq 0 ]; then
+            echo "repo.csv file downloaded successfully!"
+        else
+            echo "Failed to download repo.csv file."
+        fi
+        # Read the CSV file and cencel repositories
+        while IFS=, read -r repo || [ -n "$repo" ]; do
+          # Get the most recent workflow run ID for the specified branch
+          run_id=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
+          "https://api.github.com/repos/$REPO_OWNER/$repo/actions/runs?branch=$BRANCH&event=push" \
+          | jq -r '.workflow_runs[0].id')
+
+          # Cancel the workflow run
+          curl -X POST -s -H "Authorization: Bearer $GH_TOKEN" \
+          "https://api.github.com/repos/$REPO_OWNER/$repo/actions/runs/$run_id/cancel"
+
+          echo "Workflow run $run_id has been canceled"
+        done < ./repo.csv
+        # update commit status
+        curl -X POST -H "Authorization: token $GH_TOKEN" -H "Accept: application/vnd.github.v3+json" https://api.github.com/repos/$REPO_OWNER/$REPO/statuses/${COMMIT_ID} -d '{"state": "failure", "context": "continuous-integration/build-${BUILD_NUMBER"}'
+
+    - name: Discard Local Changes
+      ## checks if changed packages, on release branch also checks for full build tag
+      if: ${{ env.changed_packages != '' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && env.changed_packages != '' }}
+      run: |
+        cd $GITHUB_WORKSPACE
+        git checkout -- .
+        git clean -f
+
+    - name: Post to a Slack channel
+      if: ${{ always() }}
+      id: slack
+      uses: slackapi/slack-github-action@v1.23.0
+      with:
+        # Slack channel id, channel name, or user id to post message.
+        # See also: https://api.slack.com/methods/chat.postMessage#channels
+        # You can pass in multiple channels to post to by providing a comma-delimited list of channel IDs.
+        channel-id: 'C051SPVTW2Z'
+        # For posting a simple plain text message
+        slack-message: "GitHub build result: ${{ job.status }}\nWorkflow: ${{ github.job }}\nRepository: ${{ github.event.repository.name }}\nBranch: ${{ github.ref_name }}\nBuild Number: ${{ github.run_number }}\n${{ github.event.pull_request.html_url || github.event.head_commit.url }}"
+      env:
+        SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+
+  depends_on_trigger:
+    needs: [build_amd, build_arm]
+    if: ${{ needs.build_amd.result == 'success' && needs.build_arm.result == 'success' }} && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$')
+    runs-on: ubuntu-20.04
+    steps:
+    - name: checkout
+      if: ${{ !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') }}
+      uses: actions/checkout@v3
+      with:
+        fetch-depth: 0
+    - name: Get unique changd packages
+    ## checks if trigger on push event, on release branch also checks for full build tag
+      if: ${{ github.event_name == 'push' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && github.event_name == 'push' }}
+      run: |
+        mapfile -t CHANGED_FILES < <(git diff --name-only ${{ github.event.before }} ${{ github.event.after }})
+        # Extract the parent directory of each file and remove duplicates and directories starting with a period
+        unique_packages=()
+        for path in "${CHANGED_FILES[@]}"; do
+            if [[ $path == *"/"* ]]; then
+                parent_dir=$(dirname "$path")
+                if [[ ! "$parent_dir" =~ ^\.(.*)$ && -d "$parent_dir" ]]; then
+                    package="${parent_dir##*/}"
+                    echo "Package name: $package"
+                    if [[ "$package" != .* ]]; then
+                        echo "Adding package name to unique_packages list: $package"
+                        unique_packages+=("$package")
+                    fi
+                fi
+            fi
+        done
+
+        # Remove duplicates from the unique_packages list
+        unique_packages=($(for path in "${CHANGED_FILES[@]}"; do
+            if [[ $path == *"/"* ]]; then # check if path contains '/'
+                package="${path%%/*}"
+                if [[ "$package" != .* ]]; then
+                echo "$package"
+                fi
+            fi
+        done | sort -u))
+
+        # Output the list of unique packages
+        echo "Changed packages: ${unique_packages[@]}"
+
+        # Set the `changed_packages` environment variable with the list of unique packages
+        echo "changed_packages=${unique_packages[*]}" >> $GITHUB_ENV
+
+    - name: Get workflow manual input
+    ## checks if trigger on dispatch event, on release branch also checks for full build tag
+      if: ${{ github.event_name == 'workflow_dispatch' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && github.event_name == 'workflow_dispatch' }}
+      run: | 
+        echo "${{ github.event.inputs.packages_build }}"
+        echo "changed_packages=${{ github.event.inputs.packages_build }}" >> $GITHUB_ENV
+
+    - name: Ros Install
+      ## checks if changed packages, on release branch also checks for full build tag
+      if: ${{ env.changed_packages != '' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && env.changed_packages != '' }}
+      run: |
+        sudo apt update && sudo apt install locales
+        sudo locale-gen en_US en_US.UTF-8
+        sudo update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8
+        export LANG=en_US.UTF-8
+        locale
+        sudo apt install software-properties-common -y
+        sudo add-apt-repository universe
+        sudo apt update && sudo apt install curl gnupg lsb-release -y
+        curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key  -o /usr/share/keyrings/ros-archive-keyring.gpg
+        echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(source /etc/os-release && echo $UBUNTU_CODENAME) main" | sudo tee /etc/apt/sources.list.d/ros2.list > /dev/null
+        sudo apt update
+        sudo apt install ros-galactic-ros-base
+        echo "installing colcon"
+        sudo apt install python3-colcon-common-extensions -y
+
+    - name: Trigger task that depends on packages
+      if: ${{ env.changed_packages != '' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && env.changed_packages != '' }}
+      run: |
+        echo "Changed packages: $changed_packages"
+        mkdir ros_ws && cd ros_ws
+        # Download repo.csv
+        sudo curl -u "Amir-civ:$GH_TOKEN" -L https://raw.githubusercontent.com/Civdrone/civros-release/main/repo.csv -o ./repo.csv
+        if [ $? -eq 0 ]; then
+            echo "repo.csv file downloaded successfully!"
+        else
+            echo "Failed to download repo.csv file."
+        fi
+        
+        # Read the CSV file and clone repositories
+        while IFS=, read -r repo || [ -n "$repo" ]; do
+            git clone https://"$Amir-civ":"${GH_TOKEN}"@github.com/$REPO_OWNER/"$repo".git
+        done < ./repo.csv
+        
+        # Source ROS 2 Galactic installation
+        source /opt/ros/galactic/setup.bash
+        
+        # Run colcon list --topological-order command and extract the first fraction from each line
+        packages=$(colcon list --topological-order | awk '{print $1}')
+        
+        # Print the extracted packages
+        echo "$packages"
+        
+        input_packages=($changed_packages)  # Replace with your desired package names
+        new_list=()
+        
+        for input_package in "${input_packages[@]}"; do
+          found=false
+          temp_list=()
+        
+          for package in $packages; do
+            if [ "$found" = true ]; then
+              temp_list+=("$package")
+            fi
+            if [ "$package" = "$input_package" ]; then
+              found=true
+            fi
+          done
+        
+          if [ ${#temp_list[@]} -gt ${#new_list[@]} ]; then
+            new_list=("${temp_list[@]}")
+          fi
+        done
+        
+        echo "${new_list[@]}"
+        
+        # Identify unique repositories containing the packages in the new list and create a separate list
+        repo_list=()
+        
+        for package in "${new_list[@]}"; do
+          for repo in */; do
+            if [ -d "$repo" ]; then
+              if [ -d "${repo}${package}" ]; then
+                repo_name=${repo%/}
+                if [[ ! " ${repo_list[@]} " =~ " ${repo_name} " ]]; then
+                  repo_list+=("$repo_name")
+                fi
+              fi
+            fi
+          done
+        done
+        
+        echo "Unique repositories containing the packages:"
+        echo "${repo_list[@]}"
+        
+        # Trigger workflow on each repository with the packages as inputs
+        for repo_name in "${repo_list[@]}"; do
+          echo "Triggering workflow on repository: $repo_name"
+        
+          # Prepare the packages as input arguments
+          input_args=""
+          for package in "${new_list[@]}"; do
+            if [ -d "$repo_name/$package" ]; then
+              input_args+=" $package"
+            fi
+          done
+            # echo "Repo: $repo_name"
+            # echo "packages:"
+            # echo "$input_args"
+          # Trigger workflow using GitHub API
+          curl -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/$REPO_OWNER/$repo_name/actions/workflows/dev_ci.yaml/dispatches" \
+            -d '{"ref":"'$BRANCH'", "inputs": {"packages_build": "'$input_args'"}}'
+        done
+    - name: Post to a Slack channel
+      if: ${{ always() }}
+      id: slack
+      uses: slackapi/slack-github-action@v1.23.0
+      with:
+        # Slack channel id, channel name, or user id to post message.
+        # See also: https://api.slack.com/methods/chat.postMessage#channels
+        # You can pass in multiple channels to post to by providing a comma-delimited list of channel IDs.
+        channel-id: 'C051SPVTW2Z'
+        # For posting a simple plain text message
+        slack-message: "GitHub build result: ${{ job.status }}\nWorkflow: ${{ github.job }}\nRepository: ${{ github.event.repository.name }}\nBranch: ${{ github.ref_name }}\nBuild Number: ${{ github.run_number }}\n${{ github.event.pull_request.html_url || github.event.head_commit.url }}"
+      env:
+        SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
