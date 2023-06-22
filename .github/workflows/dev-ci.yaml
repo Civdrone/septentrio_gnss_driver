@@ -3,8 +3,8 @@ name: dev-ci
 on:
   workflow_dispatch:
     inputs:
-      packages_build:
-        description: 'input for what packages ci should build seperated by spaces'
+      packages_build_paths:
+        description: 'intput packages paths to build seperated by spaces'
         required: true
         default: ''
   push:
@@ -59,53 +59,57 @@ jobs:
             echo "FULL_BUILD_TAG=true" >> $GITHUB_ENV
           fi
 
-      - name: Get unique changd packages
-      ## checks if trigger on push event, on release branch also checks for full build tag
+      - name: Get unique changed packages
+        ## checks if trigger on push event, on release branch also checks for full build tag
         if: ${{ github.event_name == 'push' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && github.event_name == 'push' }}
         run: |
           mapfile -t CHANGED_FILES < <(git diff --name-only ${{ github.event.before }} ${{ github.event.after }})
-          # Extract the parent directory of each file and remove duplicates and directories starting with a period
-          unique_packages=()
+          # Initialize unique_packages_paths
+          unique_packages_paths=()
+          # Check if root directory has changed and contains package.xml
           for path in "${CHANGED_FILES[@]}"; do
-              if [[ $path == *"/"* ]]; then
-                  parent_dir=$(dirname "$path")
-                  if [[ ! "$parent_dir" =~ ^\.(.*)$ && -d "$parent_dir" ]]; then
-                      package="${parent_dir##*/}"
-                      echo "Package name: $package"
-                      if [[ "$package" != .* ]]; then
-                          echo "Adding package name to unique_packages list: $package"
-                          unique_packages+=("$package")
+            if [[ ! $path == *"/"* && -f "package.xml" ]]; then
+              unique_packages_paths=(".")
+              break
+            fi
+          done
+          # If no root directory change, proceed with checking subdirectories
+          if [[ ${#unique_packages_paths[@]} -eq 0 ]]; then
+              for path in "${CHANGED_FILES[@]}"; do
+                  if [[ $path == *"/"* ]]; then
+                      parent_dir=$(dirname "$path")
+                      if [[ ! "$parent_dir" =~ ^\.(.*)$ && -d "$parent_dir" && -f "$parent_dir/package.xml" ]]; then
+                          echo "Package path: $parent_dir"
+                          if [[ "$parent_dir" != .* ]]; then
+                              echo "Adding package path to unique_packages_paths list: $parent_dir"
+                              unique_packages_paths+=("$parent_dir")
+                          fi
                       fi
                   fi
-              fi
-          done
-
-          # Remove duplicates from the unique_packages list
-          unique_packages=($(for path in "${CHANGED_FILES[@]}"; do
-              if [[ $path == *"/"* ]]; then # check if path contains '/'
-                  package="${path%%/*}"
-                  if [[ "$package" != .* ]]; then
-                  echo "$package"
-                  fi
-              fi
-          done | sort -u))
-
-          # Output the list of unique packages
-          echo "Changed packages: ${unique_packages[@]}"
-
-          # Set the `changed_packages` environment variable with the list of unique packages
-          echo "changed_packages=${unique_packages[*]}" >> $GITHUB_ENV
+              done
+      
+              # Remove duplicates from the unique_packages_paths list
+              unique_packages_paths=($(for path in "${unique_packages_paths[@]}"; do
+                  echo "$path"
+              done | sort -u))
+          fi
+      
+          # Output the list of unique packages paths
+          echo "Changed packages: ${unique_packages_paths[@]}"
+      
+          # Set the `changed_packages_paths` environment variable with the list of unique packages paths
+          echo "changed_packages_paths=${unique_packages_paths[*]}" >> $GITHUB_ENV
 
       - name: Get workflow manual input
       ## checks if trigger on dispatch event, on release branch also checks for full build tag
         if: ${{ github.event_name == 'workflow_dispatch' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && github.event_name == 'workflow_dispatch' }}
         run: | 
-          echo "${{ github.event.inputs.packages_build }}"
-          echo "changed_packages=${{ github.event.inputs.packages_build }}" >> $GITHUB_ENV
+          echo "${{ github.event.inputs.packages_build_paths }}"
+          echo "changed_packages_paths=${{ github.event.inputs.packages_build_paths }}" >> $GITHUB_ENV
 
       - name: Update artifactory server
       ## checks if changed packages, on release branch also checks for full build tag
-        if: ${{ env.changed_packages != '' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && env.changed_packages != '' }}
+        if: ${{ env.changed_packages_paths != '' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && env.changed_packages_paths != '' }}
         run: |
           echo $REPO_OWNER
           echo $REPO
@@ -136,7 +140,7 @@ jobs:
 
       - name: install external packages
         ## checks if changed packages, on release branch also checks for full build tag
-        if: ${{ env.changed_packages != '' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && env.changed_packages != '' }}
+        if: ${{ env.changed_packages_paths != '' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && env.changed_packages_paths != '' }}
         run: |
           mkdir external_packages
           cd external_packages
@@ -154,7 +158,7 @@ jobs:
 
       - name: Ros Install
         ## checks if changed packages, on release branch also checks for full build tag
-        if: ${{ env.changed_packages != '' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && env.changed_packages != '' }}
+        if: ${{ env.changed_packages_paths != '' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && env.changed_packages_paths != '' }}
         run: |
           sudo apt update && sudo apt install locales
           sudo locale-gen en_US en_US.UTF-8
@@ -171,7 +175,7 @@ jobs:
 
       - name: check os and ros versions
         ## checks if changed packages, on release branch also checks for full build tag
-        if: ${{ env.changed_packages != '' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && env.changed_packages != '' }}
+        if: ${{ env.changed_packages_paths != '' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && env.changed_packages_paths != '' }}
         run: |
           lsb_release -a
           dpkg --print-architecture
@@ -179,7 +183,7 @@ jobs:
 
       - name: additional env installations
         ## checks if changed packages, on release branch also checks for full build tag
-        if: ${{ env.changed_packages != '' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && env.changed_packages != '' }}
+        if: ${{ env.changed_packages_paths != '' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && env.changed_packages_paths != '' }}
         run: |
           pip3 install scipy
           sudo apt-get install ros-galactic-pluginlib -y
@@ -199,7 +203,7 @@ jobs:
    
       - name: install rosdep
         ## checks if changed packages, on release branch also checks for full build tag
-        if: ${{ env.changed_packages != '' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && env.changed_packages != '' }}
+        if: ${{ env.changed_packages_paths != '' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && env.changed_packages_paths != '' }}
         run: |
           echo "Install rosdep"
           sudo apt upgrade -y
@@ -217,7 +221,7 @@ jobs:
 
       - name: install mavros
         ## checks if changed packages, on release branch also checks for full build tag
-        if: ${{ env.changed_packages != '' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && env.changed_packages != '' }}
+        if: ${{ env.changed_packages_paths != '' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && env.changed_packages_paths != '' }}
         run: |
           wget https://raw.githubusercontent.com/mavlink/mavros/master/mavros/scripts/install_geographiclib_datasets.sh
           sudo apt-get install ros-galactic-mavros ros-galactic-mavros-extras -y
@@ -225,19 +229,19 @@ jobs:
 
       - name: install rosbridge server
         ## checks if changed packages, on release branch also checks for full build tag
-        if: ${{ env.changed_packages != '' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && env.changed_packages != '' }}
+        if: ${{ env.changed_packages_paths != '' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && env.changed_packages_paths != '' }}
         run: sudo apt install ros-galactic-rosbridge-server -y
 
       - name: Build deb package
         ## checks if changed packages, on release branch also checks for full build tag
-        if: ${{ env.changed_packages != '' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && env.changed_packages != '' }}
+        if: ${{ env.changed_packages_paths != '' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && env.changed_packages_paths != '' }}
         id: build_deb_package
         run: |
-          IFS=' ' read -ra packages <<< "$changed_packages"
-          for package in "${packages[@]}"; do
+          IFS=' ' read -ra packages_paths <<< "$changed_packages_paths"
+          for package_path in "${packages_paths[@]}"; do
             pwd
             ls
-            cd "$package"
+            cd "$GITHUB_WORKSPACE/$package_path"
             pwd
             ls
             sed -E -i "s/<version>([0-9]+)\.([0-9]+)\.([0-9]+)<\/version>/<version>\1.\2.${BUILD_NUMBER}<\/version>/" package.xml
@@ -257,7 +261,7 @@ jobs:
 
       - name: Push to artifactory server
         ## checks if changed packages & built packages, on release branch also checks for full build tag
-        if: ${{ env.changed_packages != '' && env.built_packages == 'true' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && env.changed_packages != '' && env.built_packages == 'true' }}
+        if: ${{ env.changed_packages_paths != '' && env.built_packages == 'true' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && env.changed_packages_paths != '' && env.built_packages == 'true' }}
         run: |
           PACKS=($(ls ${1:-.}/*.deb))
           echo "$PACKS"
@@ -273,21 +277,28 @@ jobs:
           done
 
       - name: Update rosdep yaml file
-        ## checks if changed packages & built packages, on release branch also checks for full build tag
-        if: ${{ env.changed_packages != '' && env.built_packages == 'true' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && env.changed_packages != '' && env.built_packages == 'true' }}
+        ## checks if changed packages_paths & built packages, on release branch also checks for full build tag
+        if: ${{ env.changed_packages_paths != '' && env.built_packages == 'true' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && env.changed_packages_paths != '' && env.built_packages == 'true' }}
         run: |
           git clone https://"Amir-civ:$GH_TOKEN"@github.com/Civdrone/scripts.git
           cd scripts
           git checkout ci-github-actions
-          IFS=' ' read -ra packages <<< "$changed_packages"
-          for package in "${packages[@]}"; do
-            package_exists=$(yq ".$package" ./docker_container/local.yaml)
+          IFS=' ' read -ra packages_paths <<< "$changed_packages_paths"
+          for package_path in "${packages_paths[@]}"; do
+            # Check if package path is root
+            if [[ $package_path == "." ]]; then
+              package_name=$REPO
+            else
+              package_name=$(basename "$package_path")
+            fi
+      
+            package_exists=$(yq ".$package_name" ./docker_container/local.yaml)
             if [[ $package_exists = null ]]; then
               # Define the apt package
-              apt_package=$(echo "$package" | sed 's/_/-/g; s/^/ros-galactic-/')
+              apt_package=$(echo "$package_name" | sed 's/_/-/g; s/^/ros-galactic-/')
               
               # Create the YAML content for the new package
-              new_yaml_content="${package}:\n  ubuntu:\n    focal: [${apt_package}]"
+              new_yaml_content="${package_name}:\n  ubuntu:\n    focal: [${apt_package}]"
               
               # Read the existing YAML content from the file
               existing_yaml_content=$(sudo cat ./docker_container/local.yaml)
@@ -304,10 +315,9 @@ jobs:
               git commit -m "changed rosdep yaml file from ci, owner/repo: ${REPO}, branch: ${BRANCH}  build number: ${BUILD_NUMBER}."
               git push origin ci-github-actions
             else
-              echo "$package exists"
+              echo "$package_name exists"
             fi
-          done
-
+          done       
 
       - name: Update commit status and cencel all workflows with the same branch on failure
         if: ${{ failure() }}
@@ -336,7 +346,7 @@ jobs:
 
       - name: Discard Local Changes
         ## checks if changed packages, on release branch also checks for full build tag
-        if: ${{ env.changed_packages != '' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && env.changed_packages != '' }}
+        if: ${{ env.changed_packages_paths != '' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && env.changed_packages_paths != '' }}
         run: |
           cd $GITHUB_WORKSPACE
           git checkout -- .
@@ -387,53 +397,58 @@ jobs:
           echo "FULL_BUILD_TAG=true" >> $GITHUB_ENV
         fi
         
-    - name: Get unique changd packages and store it as env variable
+    - name: Get unique changed packages
       ## checks if trigger on push event, on release branch also checks for full build tag
       if: ${{ github.event_name == 'push' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && github.event_name == 'push' }}
       run: |
         mapfile -t CHANGED_FILES < <(git diff --name-only ${{ github.event.before }} ${{ github.event.after }})
-        # Extract the parent directory of each file and remove duplicates and directories starting with a period
-        unique_packages=()
+        # Initialize unique_packages_paths
+        unique_packages_paths=()
+        # Check if root directory has changed and contains package.xml
         for path in "${CHANGED_FILES[@]}"; do
-            if [[ $path == *"/"* ]]; then
-                parent_dir=$(dirname "$path")
-                if [[ ! "$parent_dir" =~ ^\.(.*)$ && -d "$parent_dir" ]]; then
-                    package="${parent_dir##*/}"
-                    echo "Package name: $package"
-                    if [[ "$package" != .* ]]; then
-                        echo "Adding package name to unique_packages list: $package"
-                        unique_packages+=("$package")
+          if [[ ! $path == *"/"* && -f "package.xml" ]]; then
+            unique_packages_paths=(".")
+            break
+          fi
+        done
+        # If no root directory change, proceed with checking subdirectories
+        if [[ ${#unique_packages_paths[@]} -eq 0 ]]; then
+            for path in "${CHANGED_FILES[@]}"; do
+                if [[ $path == *"/"* ]]; then
+                    parent_dir=$(dirname "$path")
+                    if [[ ! "$parent_dir" =~ ^\.(.*)$ && -d "$parent_dir" && -f "$parent_dir/package.xml" ]]; then
+                        echo "Package path: $parent_dir"
+                        if [[ "$parent_dir" != .* ]]; then
+                            echo "Adding package path to unique_packages_paths list: $parent_dir"
+                            unique_packages_paths+=("$parent_dir")
+                        fi
                     fi
                 fi
-            fi
-        done
+            done
+    
+            # Remove duplicates from the unique_packages_paths list
+            unique_packages_paths=($(for path in "${unique_packages_paths[@]}"; do
+                echo "$path"
+            done | sort -u))
+        fi
+    
+        # Output the list of unique packages paths
+        echo "Changed packages: ${unique_packages_paths[@]}"
+    
+        # Set the `changed_packages_paths` environment variable with the list of unique packages paths
+        echo "changed_packages_paths=${unique_packages_paths[*]}" >> $GITHUB_ENV
 
-        # Remove duplicates from the unique_packages list
-        unique_packages=($(for path in "${CHANGED_FILES[@]}"; do
-            if [[ $path == *"/"* ]]; then # check if path contains '/'
-                package="${path%%/*}"
-                if [[ "$package" != .* ]]; then
-                echo "$package"
-                fi
-            fi
-        done | sort -u))
-
-        # Output the list of unique packages
-        echo "Changed packages: ${unique_packages[@]}"
-
-        # Set the `changed_packages` environment variable with the list of unique packages
-        echo "changed_packages=${unique_packages[*]}" >> $GITHUB_ENV
 
     - name: Get workflow manual input and store it as env variable
       ## checks if trigger on dispatch event, on release branch also checks for full build tag
       if: ${{ github.event_name == 'workflow_dispatch' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && github.event_name == 'workflow_dispatch' }}
       run: | 
-        echo "${{ github.event.inputs.packages_build }}"
-        echo "changed_packages=${{ github.event.inputs.packages_build }}" >> $GITHUB_ENV
+        echo "${{ github.event.inputs.packages_build_paths }}"
+        echo "changed_packages_paths=${{ github.event.inputs.packages_build_paths }}" >> $GITHUB_ENV
 
     - name: Configure AWS credentials
       ## checks if changed packages, on release branch also checks for full build tag
-      if: ${{ env.changed_packages != '' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && env.changed_packages != '' }}
+      if: ${{ env.changed_packages_paths != '' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && env.changed_packages_paths != '' }}
       uses: aws-actions/configure-aws-credentials@v2
       with:
         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -442,15 +457,15 @@ jobs:
 
     - name: Set up QEMU
       ## checks if changed packages, on release branch also checks for full build tag
-      if: ${{ env.changed_packages != '' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && env.changed_packages != '' }}
+      if: ${{ env.changed_packages_paths != '' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && env.changed_packages_paths != '' }}
       uses: docker/setup-qemu-action@v2
 
     - name: Run docker and build deb
       ## checks if changed packages, on release branch also checks for full build tag
-      if: ${{ env.changed_packages != '' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && env.changed_packages != '' }}
+      if: ${{ env.changed_packages_paths != '' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && env.changed_packages_paths != '' }}
       run: |
-        aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 543341912885.dkr.ecr.us-east-1.amazonaws.com        # changed_packages_string=$(printf '%s ' "${changed_packages[@]}")
-        docker run -itd --name cross-c --entrypoint=/bin/bash -v $(pwd):/home/civrobotics/cross -e ARTIFACTORY_TOKEN=$ARTIFACTORY_TOKEN -e ARTIFACTORY_URL=$ARTIFACTORY_URL -e GH_TOKEN=$GH_TOKEN -e REPO_OWNER=$REPO_OWNER -e REPO=$REPO -e BRANCH=$BRANCH -e BUILD_NUMBER=${{ github.run_number }} -e changed_packages="$changed_packages" ${{ env.ECR_DOCKER_IMAGE }}
+        aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 543341912885.dkr.ecr.us-east-1.amazonaws.com        # changed_packages_string=$(printf '%s ' "${changed_packages_paths[@]}")
+        docker run -itd --name cross-c --entrypoint=/bin/bash -v $(pwd):/home/civrobotics/cross -e ARTIFACTORY_TOKEN=$ARTIFACTORY_TOKEN -e ARTIFACTORY_URL=$ARTIFACTORY_URL -e GH_TOKEN=$GH_TOKEN -e REPO_OWNER=$REPO_OWNER -e REPO=$REPO -e BRANCH=$BRANCH -e BUILD_NUMBER=${{ github.run_number }} -e changed_packages_paths="$changed_packages_paths" ${{ env.ECR_DOCKER_IMAGE }}
         docker exec cross-c bash /usr/local/bin/cross_deb_entrypoint.sh
 
     - name: Update commit status and cencel all workflows with the same branch on failure
@@ -480,7 +495,7 @@ jobs:
 
     - name: Discard Local Changes
       ## checks if changed packages, on release branch also checks for full build tag
-      if: ${{ env.changed_packages != '' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && env.changed_packages != '' }}
+      if: ${{ env.changed_packages_paths != '' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && env.changed_packages_paths != '' }}
       run: |
         cd $GITHUB_WORKSPACE
         git checkout -- .
@@ -510,53 +525,58 @@ jobs:
       uses: actions/checkout@v3
       with:
         fetch-depth: 0
-    - name: Get unique changd packages
-    ## checks if trigger on push event, on release branch also checks for full build tag
+
+    - name: Get unique changed packages
+      ## checks if trigger on push event, on release branch also checks for full build tag
       if: ${{ github.event_name == 'push' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && github.event_name == 'push' }}
       run: |
         mapfile -t CHANGED_FILES < <(git diff --name-only ${{ github.event.before }} ${{ github.event.after }})
-        # Extract the parent directory of each file and remove duplicates and directories starting with a period
-        unique_packages=()
+        # Initialize unique_packages_paths
+        unique_packages_paths=()
+        # Check if root directory has changed and contains package.xml
         for path in "${CHANGED_FILES[@]}"; do
-            if [[ $path == *"/"* ]]; then
-                parent_dir=$(dirname "$path")
-                if [[ ! "$parent_dir" =~ ^\.(.*)$ && -d "$parent_dir" ]]; then
-                    package="${parent_dir##*/}"
-                    echo "Package name: $package"
-                    if [[ "$package" != .* ]]; then
-                        echo "Adding package name to unique_packages list: $package"
-                        unique_packages+=("$package")
+          if [[ ! $path == *"/"* && -f "package.xml" ]]; then
+            unique_packages_paths=(".")
+            break
+          fi
+        done
+        # If no root directory change, proceed with checking subdirectories
+        if [[ ${#unique_packages_paths[@]} -eq 0 ]]; then
+            for path in "${CHANGED_FILES[@]}"; do
+                if [[ $path == *"/"* ]]; then
+                    parent_dir=$(dirname "$path")
+                    if [[ ! "$parent_dir" =~ ^\.(.*)$ && -d "$parent_dir" && -f "$parent_dir/package.xml" ]]; then
+                        echo "Package path: $parent_dir"
+                        if [[ "$parent_dir" != .* ]]; then
+                            echo "Adding package path to unique_packages_paths list: $parent_dir"
+                            unique_packages_paths+=("$parent_dir")
+                        fi
                     fi
                 fi
-            fi
-        done
-
-        # Remove duplicates from the unique_packages list
-        unique_packages=($(for path in "${CHANGED_FILES[@]}"; do
-            if [[ $path == *"/"* ]]; then # check if path contains '/'
-                package="${path%%/*}"
-                if [[ "$package" != .* ]]; then
-                echo "$package"
-                fi
-            fi
-        done | sort -u))
-
-        # Output the list of unique packages
-        echo "Changed packages: ${unique_packages[@]}"
-
-        # Set the `changed_packages` environment variable with the list of unique packages
-        echo "changed_packages=${unique_packages[*]}" >> $GITHUB_ENV
+            done
+    
+            # Remove duplicates from the unique_packages_paths list
+            unique_packages_paths=($(for path in "${unique_packages_paths[@]}"; do
+                echo "$path"
+            done | sort -u))
+        fi
+    
+        # Output the list of unique packages paths
+        echo "Changed packages: ${unique_packages_paths[@]}"
+    
+        # Set the `changed_packages_paths` environment variable with the list of unique packages paths
+        echo "changed_packages_paths=${unique_packages_paths[*]}" >> $GITHUB_ENV
 
     - name: Get workflow manual input
     ## checks if trigger on dispatch event, on release branch also checks for full build tag
       if: ${{ github.event_name == 'workflow_dispatch' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && github.event_name == 'workflow_dispatch' }}
       run: | 
-        echo "${{ github.event.inputs.packages_build }}"
-        echo "changed_packages=${{ github.event.inputs.packages_build }}" >> $GITHUB_ENV
+        echo "${{ github.event.inputs.packages_build_paths }}"
+        echo "changed_packages_paths=${{ github.event.inputs.packages_build_paths }}" >> $GITHUB_ENV
 
     - name: Ros Install
       ## checks if changed packages, on release branch also checks for full build tag
-      if: ${{ env.changed_packages != '' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && env.changed_packages != '' }}
+      if: ${{ env.changed_packages_paths != '' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && env.changed_packages_paths != '' }}
       run: |
         sudo apt update && sudo apt install locales
         sudo locale-gen en_US en_US.UTF-8
@@ -574,9 +594,9 @@ jobs:
         sudo apt install python3-colcon-common-extensions -y
 
     - name: Trigger task that depends on packages
-      if: ${{ env.changed_packages != '' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && env.changed_packages != '' }}
+      if: ${{ env.changed_packages_paths != '' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && env.changed_packages_paths != '' }}
       run: |
-        echo "Changed packages: $changed_packages"
+        echo "Changed package paths: $changed_packages_paths"
         mkdir ros_ws && cd ros_ws
         # Download repo.csv
         sudo curl -u "Amir-civ:$GH_TOKEN" -L https://raw.githubusercontent.com/Civdrone/civros-release/main/repo.csv -o ./repo.csv
@@ -600,36 +620,29 @@ jobs:
         # Print the extracted packages
         echo "$packages"
         
-        input_packages=($changed_packages)  # Replace with your desired package names
-        new_list=()
+        input_package_paths=($changed_packages_paths)  # Replace with your desired package paths
+        new_list_paths=()
         
-        for input_package in "${input_packages[@]}"; do
-          found=false
-          temp_list=()
-        
-          for package in $packages; do
-            if [ "$found" = true ]; then
-              temp_list+=("$package")
-            fi
-            if [ "$package" = "$input_package" ]; then
-              found=true
+        for package in $packages; do
+
+          new_list_paths=()
+          
+          for package_path in "${input_package_paths[@]}"; do
+            if [ "$package" = "$(basename "$package_path")" ]; then
+              new_list_paths+=("$(dirname "$package_path")/$package")
             fi
           done
-        
-          if [ ${#temp_list[@]} -gt ${#new_list[@]} ]; then
-            new_list=("${temp_list[@]}")
-          fi
         done
         
-        echo "${new_list[@]}"
+        echo "${new_list_paths[@]}"
         
-        # Identify unique repositories containing the packages in the new list and create a separate list
+        # Identify unique repositories containing the packages in the new list paths and create a separate list
         repo_list=()
         
-        for package in "${new_list[@]}"; do
+        for package_path in "${new_list_paths[@]}"; do
           for repo in */; do
             if [ -d "$repo" ]; then
-              if [ -d "${repo}${package}" ]; then
+              if [ -d "${repo}${package_path}" ]; then
                 repo_name=${repo%/}
                 if [[ ! " ${repo_list[@]} " =~ " ${repo_name} " ]]; then
                   repo_list+=("$repo_name")
@@ -648,21 +661,23 @@ jobs:
         
           # Prepare the packages as input arguments
           input_args=""
-          for package in "${new_list[@]}"; do
-            if [ -d "$repo_name/$package" ]; then
-              input_args+=" $package"
+          for package_path in "${new_list_paths[@]}"; do
+            if [ -d "$repo_name/$package_path" ]; then
+              input_args+=" $package_path"
             fi
           done
-            # echo "Repo: $repo_name"
-            # echo "packages:"
-            # echo "$input_args"
+        
           # Trigger workflow using GitHub API
+          echo "new list paths: ${new_list_paths[@]}"
+          echo "Repo: $repo_name"
+          echo "pacakges paths: $input_args"
           curl -X POST \
             -H "Authorization: Bearer $GH_TOKEN" \
             -H "Accept: application/vnd.github.v3+json" \
             "https://api.github.com/repos/$REPO_OWNER/$repo_name/actions/workflows/dev_ci.yaml/dispatches" \
-            -d '{"ref":"'$BRANCH'", "inputs": {"packages_build": "'$input_args'"}}'
+            -d '{"ref":"'$BRANCH'", "inputs": {"packages_build_paths": "'$input_args'"}}'
         done
+
     - name: Post to a Slack channel
       if: ${{ always() }}
       id: slack
