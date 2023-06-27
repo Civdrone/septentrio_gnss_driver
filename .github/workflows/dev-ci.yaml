@@ -66,47 +66,60 @@ jobs:
           mapfile -t CHANGED_FILES < <(git diff --name-only ${{ github.event.before }} ${{ github.event.after }})
           # Initialize unique_packages_paths
           unique_packages_paths=()
-          # Check if root directory has changed and contains package.xml
+
           for path in "${CHANGED_FILES[@]}"; do
-            if [[ ! $path == *"/"* && -f "package.xml" ]]; then
-              unique_packages_paths=(".")
-              break
+            # if the path is a hidden directory or file, skip to the next iteration
+            if [[ $path == .* ]]; then
+              continue
+            fi
+            current_dirname="$(realpath "$path")"
+            has_package_xml=false
+            while [[ "$current_dirname" != "${GITHUB_WORKSPACE}" && $has_package_xml == false ]]; do
+              current_dirname=$(dirname "$current_dirname")
+              if [[ -f "${current_dirname}/package.xml" ]]; then
+                has_package_xml=true
+              fi
+            done
+
+            # Add if package.xml was found
+            if [[ $has_package_xml == true ]]; then
+              unique_packages_paths+=("$current_dirname")
             fi
           done
-          # If no root directory change, proceed with checking subdirectories
-          if [[ ${#unique_packages_paths[@]} -eq 0 ]]; then
-              for path in "${CHANGED_FILES[@]}"; do
-                  if [[ $path == *"/"* ]]; then
-                      parent_dir=$(dirname "$path")
-                      if [[ ! "$parent_dir" =~ ^\.(.*)$ && -d "$parent_dir" && -f "$parent_dir/package.xml" ]]; then
-                          echo "Package path: $parent_dir"
-                          if [[ "$parent_dir" != .* ]]; then
-                              echo "Adding package path to unique_packages_paths list: $parent_dir"
-                              unique_packages_paths+=("$parent_dir")
-                          fi
-                      fi
-                  fi
-              done
-      
-              # Remove duplicates from the unique_packages_paths list
-              unique_packages_paths=($(for path in "${unique_packages_paths[@]}"; do
-                  echo "$path"
-              done | sort -u))
-          fi
-      
+
+          # Remove duplicates from the unique_packages_paths list
+          unique_packages_paths=($(for path in "${unique_packages_paths[@]}"; do
+            echo "$path"
+          done | sort -u))
+
           # Output the list of unique packages paths
           echo "Changed packages: ${unique_packages_paths[@]}"
-      
+
           # Set the `changed_packages_paths` environment variable with the list of unique packages paths
           echo "changed_packages_paths=${unique_packages_paths[*]}" >> $GITHUB_ENV
 
       - name: Get workflow manual input
-      ## checks if trigger on dispatch event, on release branch also checks for full build tag
+        ## checks if trigger on dispatch event, on release branch also checks for full build tag
         if: ${{ github.event_name == 'workflow_dispatch' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && github.event_name == 'workflow_dispatch' }}
-        run: | 
-          echo "${{ github.event.inputs.packages_build_paths }}"
-          echo "changed_packages_paths=${{ github.event.inputs.packages_build_paths }}" >> $GITHUB_ENV
-
+        run: |
+          # Split the input paths by spaces and store them in an array
+          IFS=' ' read -ra paths <<< "${{ github.event.inputs.packages_build_paths }}"
+          
+          # Initialize an empty string to store the converted absolute paths
+          converted_paths=""
+          
+          # Iterate over the paths array and convert each path to an absolute path using realpath
+          for path in "${paths[@]}"; do
+            absolute_path=$(realpath "$path")
+            converted_paths+=" $absolute_path"
+          done
+          
+          # Remove leading space from the converted_paths string
+          converted_paths="${converted_paths:1}"
+          
+          # Set the converted_paths string as the value in changed_packages_paths
+          echo "changed_packages_paths=$converted_paths" >> $GITHUB_ENV
+          
       - name: Update artifactory server
       ## checks if changed packages, on release branch also checks for full build tag
         if: ${{ env.changed_packages_paths != '' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && env.changed_packages_paths != '' }}
@@ -237,11 +250,12 @@ jobs:
         if: ${{ env.changed_packages_paths != '' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && env.changed_packages_paths != '' }}
         id: build_deb_package
         run: |
+          built_packages=true
           IFS=' ' read -ra packages_paths <<< "$changed_packages_paths"
           for package_path in "${packages_paths[@]}"; do
             pwd
             ls
-            cd "$GITHUB_WORKSPACE/$package_path"
+            cd "$package_path"
             pwd
             ls
             sed -E -i "s/<version>([0-9]+)\.([0-9]+)\.([0-9]+)<\/version>/<version>\1.\2.${BUILD_NUMBER}<\/version>/" package.xml
@@ -252,28 +266,50 @@ jobs:
             sudo apt build-dep .
             dpkg-buildpackage -b -rfakeroot -us -uc
             cd ..
-            ls | grep .deb
+            # ls | grep .deb
+            if ! ls *.deb 1>/dev/null 2>&1; then
+              built_packages=false
+            fi
           done
-          if ls *.deb 1>/dev/null 2>&1; then
-            built_packages=true
-          fi
           echo "built_packages=$built_packages" >> $GITHUB_ENV
 
       - name: Push to artifactory server
         ## checks if changed packages & built packages, on release branch also checks for full build tag
         if: ${{ env.changed_packages_paths != '' && env.built_packages == 'true' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && env.changed_packages_paths != '' && env.built_packages == 'true' }}
         run: |
-          PACKS=($(ls ${1:-.}/*.deb))
-          echo "$PACKS"
-          for pack in "${PACKS[@]}"
-          do
-              name=$(basename "$pack")
-              printf "\nPublishing %s\n" "$name"
-              
-              dirname=$(cut -d '_' -f1 <<< "$name")
-              #push them to Artifactory
-              curl --fail -uamir_b:$ARTIFACTORY_TOKEN -XPUT "https://$ARTIFACTORY_URL/galactic/${dirname}/${BRANCH}/${name};deb.distribution=galactic;deb.component=$BRANCH;deb.architecture=$(dpkg --print-architecture);deb.build_number=$BUILD_NUMBER" -T $pack -o $dirname.json
-              cat $dirname.json
+          # convert the list to an array
+          IFS=' ' read -ra changed_packages_paths_arry <<< "$changed_packages_paths"
+
+          # use an associative array(bash dictionary) to handle duplicates
+          declare -A debian_packages_paths
+
+          # loop over each path, get the dirname and add it to the associative array(bash dictionary)
+          for i in "${changed_packages_paths_arry[@]}"; do
+            dirname=$(dirname "$i")
+            debian_packages_paths["$dirname"]=1
+          done
+
+          # now debian_packages_paths is a list with unique directories, so we can iterate over it
+          for dir in "${!debian_packages_paths[@]}"; do
+            echo "Processing directory $dir"
+            cd "$dir"
+            
+            # your script comes here
+            PACKS=($(ls ${1:-.}/*.deb))
+            echo "$PACKS"
+            for pack in "${PACKS[@]}"
+            do
+                name=$(basename "$pack")
+                printf "\nPublishing %s\n" "$name"
+                
+                dirname=$(cut -d '_' -f1 <<< "$name")
+                #push them to Artifactory
+                curl --fail -uamir_b:$ARTIFACTORY_TOKEN -XPUT "https://$ARTIFACTORY_URL/galactic/${dirname}/${BRANCH}/${name};deb.distribution=galactic;deb.component=$BRANCH;deb.architecture=$(dpkg --print-architecture);deb.build_number=$BUILD_NUMBER" -T $pack -o $dirname.json
+                cat $dirname.json
+            done
+
+            # get back to the initial directory, so that relative paths work in the next iteration
+            cd -
           done
 
       - name: Update rosdep yaml file
@@ -396,7 +432,7 @@ jobs:
           echo "TAG variable is not empty, value is: $FULL_BUILD_TAG"
           echo "FULL_BUILD_TAG=true" >> $GITHUB_ENV
         fi
-        
+
     - name: Get unique changed packages
       ## checks if trigger on push event, on release branch also checks for full build tag
       if: ${{ github.event_name == 'push' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && github.event_name == 'push' }}
@@ -404,47 +440,59 @@ jobs:
         mapfile -t CHANGED_FILES < <(git diff --name-only ${{ github.event.before }} ${{ github.event.after }})
         # Initialize unique_packages_paths
         unique_packages_paths=()
-        # Check if root directory has changed and contains package.xml
+
         for path in "${CHANGED_FILES[@]}"; do
-          if [[ ! $path == *"/"* && -f "package.xml" ]]; then
-            unique_packages_paths=(".")
-            break
+          # if the path is a hidden directory or file, skip to the next iteration
+          if [[ $path == .* ]]; then
+            continue
+          fi
+          current_dirname="$(realpath "$path")"
+          has_package_xml=false
+          while [[ "$current_dirname" != "${GITHUB_WORKSPACE}" && $has_package_xml == false ]]; do
+            current_dirname=$(dirname "$current_dirname")
+            if [[ -f "${current_dirname}/package.xml" ]]; then
+              has_package_xml=true
+            fi
+          done
+
+          # Add if package.xml was found
+          if [[ $has_package_xml == true ]]; then
+            unique_packages_paths+=("$current_dirname")
           fi
         done
-        # If no root directory change, proceed with checking subdirectories
-        if [[ ${#unique_packages_paths[@]} -eq 0 ]]; then
-            for path in "${CHANGED_FILES[@]}"; do
-                if [[ $path == *"/"* ]]; then
-                    parent_dir=$(dirname "$path")
-                    if [[ ! "$parent_dir" =~ ^\.(.*)$ && -d "$parent_dir" && -f "$parent_dir/package.xml" ]]; then
-                        echo "Package path: $parent_dir"
-                        if [[ "$parent_dir" != .* ]]; then
-                            echo "Adding package path to unique_packages_paths list: $parent_dir"
-                            unique_packages_paths+=("$parent_dir")
-                        fi
-                    fi
-                fi
-            done
-    
-            # Remove duplicates from the unique_packages_paths list
-            unique_packages_paths=($(for path in "${unique_packages_paths[@]}"; do
-                echo "$path"
-            done | sort -u))
-        fi
-    
+
+        # Remove duplicates from the unique_packages_paths list
+        unique_packages_paths=($(for path in "${unique_packages_paths[@]}"; do
+          echo "$path"
+        done | sort -u))
+
         # Output the list of unique packages paths
         echo "Changed packages: ${unique_packages_paths[@]}"
-    
+
         # Set the `changed_packages_paths` environment variable with the list of unique packages paths
         echo "changed_packages_paths=${unique_packages_paths[*]}" >> $GITHUB_ENV
 
-
-    - name: Get workflow manual input and store it as env variable
+    - name: Get workflow manual input
       ## checks if trigger on dispatch event, on release branch also checks for full build tag
       if: ${{ github.event_name == 'workflow_dispatch' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && github.event_name == 'workflow_dispatch' }}
-      run: | 
-        echo "${{ github.event.inputs.packages_build_paths }}"
-        echo "changed_packages_paths=${{ github.event.inputs.packages_build_paths }}" >> $GITHUB_ENV
+      run: |
+        # Split the input paths by spaces and store them in an array
+        IFS=' ' read -ra paths <<< "${{ github.event.inputs.packages_build_paths }}"
+        
+        # Initialize an empty string to store the converted absolute paths
+        converted_paths=""
+        
+        # Iterate over the paths array and convert each path to an absolute path using realpath
+        for path in "${paths[@]}"; do
+          absolute_path=$(realpath "$path")
+          converted_paths+=" $absolute_path"
+        done
+        
+        # Remove leading space from the converted_paths string
+        converted_paths="${converted_paths:1}"
+        
+        # Set the converted_paths string as the value in changed_packages_paths
+        echo "changed_packages_paths=$converted_paths" >> $GITHUB_ENV
 
     - name: Configure AWS credentials
       ## checks if changed packages, on release branch also checks for full build tag
@@ -465,7 +513,7 @@ jobs:
       if: ${{ env.changed_packages_paths != '' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && env.changed_packages_paths != '' }}
       run: |
         aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 543341912885.dkr.ecr.us-east-1.amazonaws.com        # changed_packages_string=$(printf '%s ' "${changed_packages_paths[@]}")
-        docker run -itd --name cross-c --entrypoint=/bin/bash -v $(pwd):/home/civrobotics/cross -e ARTIFACTORY_TOKEN=$ARTIFACTORY_TOKEN -e ARTIFACTORY_URL=$ARTIFACTORY_URL -e GH_TOKEN=$GH_TOKEN -e REPO_OWNER=$REPO_OWNER -e REPO=$REPO -e BRANCH=$BRANCH -e BUILD_NUMBER=${{ github.run_number }} -e changed_packages_paths="$changed_packages_paths" ${{ env.ECR_DOCKER_IMAGE }}
+        docker run -itd --name cross-c --entrypoint=/bin/bash -v $(pwd):/home/civrobotics/cross/$REPO -e ARTIFACTORY_TOKEN=$ARTIFACTORY_TOKEN -e ARTIFACTORY_URL=$ARTIFACTORY_URL -e GH_TOKEN=$GH_TOKEN -e REPO_OWNER=$REPO_OWNER -e REPO=$REPO -e BRANCH=$BRANCH -e BUILD_NUMBER=${{ github.run_number }} -e changed_packages_paths="$changed_packages_paths" -e ARTIFACTORY_ROSDEP_FILE="$ARTIFACTORY_ROSDEP_FILE" -e GITHUB_WORKSPACE="$GITHUB_WORKSPACE" ${{ env.ECR_DOCKER_IMAGE }}
         docker exec cross-c bash /usr/local/bin/cross_deb_entrypoint.sh
 
     - name: Update commit status and cencel all workflows with the same branch on failure
@@ -533,47 +581,60 @@ jobs:
         mapfile -t CHANGED_FILES < <(git diff --name-only ${{ github.event.before }} ${{ github.event.after }})
         # Initialize unique_packages_paths
         unique_packages_paths=()
-        # Check if root directory has changed and contains package.xml
+
         for path in "${CHANGED_FILES[@]}"; do
-          if [[ ! $path == *"/"* && -f "package.xml" ]]; then
-            unique_packages_paths=(".")
-            break
+          # if the path is a hidden directory or file, skip to the next iteration
+          if [[ $path == .* ]]; then
+            continue
+          fi
+          current_dirname="$(realpath "$path")"
+          has_package_xml=false
+          while [[ "$current_dirname" != "${GITHUB_WORKSPACE}" && $has_package_xml == false ]]; do
+            current_dirname=$(dirname "$current_dirname")
+            if [[ -f "${current_dirname}/package.xml" ]]; then
+              has_package_xml=true
+            fi
+          done
+
+          # Add if package.xml was found
+          if [[ $has_package_xml == true ]]; then
+            unique_packages_paths+=("$current_dirname")
           fi
         done
-        # If no root directory change, proceed with checking subdirectories
-        if [[ ${#unique_packages_paths[@]} -eq 0 ]]; then
-            for path in "${CHANGED_FILES[@]}"; do
-                if [[ $path == *"/"* ]]; then
-                    parent_dir=$(dirname "$path")
-                    if [[ ! "$parent_dir" =~ ^\.(.*)$ && -d "$parent_dir" && -f "$parent_dir/package.xml" ]]; then
-                        echo "Package path: $parent_dir"
-                        if [[ "$parent_dir" != .* ]]; then
-                            echo "Adding package path to unique_packages_paths list: $parent_dir"
-                            unique_packages_paths+=("$parent_dir")
-                        fi
-                    fi
-                fi
-            done
-    
-            # Remove duplicates from the unique_packages_paths list
-            unique_packages_paths=($(for path in "${unique_packages_paths[@]}"; do
-                echo "$path"
-            done | sort -u))
-        fi
-    
+
+        # Remove duplicates from the unique_packages_paths list
+        unique_packages_paths=($(for path in "${unique_packages_paths[@]}"; do
+          echo "$path"
+        done | sort -u))
+
         # Output the list of unique packages paths
         echo "Changed packages: ${unique_packages_paths[@]}"
-    
+
         # Set the `changed_packages_paths` environment variable with the list of unique packages paths
         echo "changed_packages_paths=${unique_packages_paths[*]}" >> $GITHUB_ENV
 
     - name: Get workflow manual input
-    ## checks if trigger on dispatch event, on release branch also checks for full build tag
+      ## checks if trigger on dispatch event, on release branch also checks for full build tag
       if: ${{ github.event_name == 'workflow_dispatch' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && github.event_name == 'workflow_dispatch' }}
-      run: | 
-        echo "${{ github.event.inputs.packages_build_paths }}"
-        echo "changed_packages_paths=${{ github.event.inputs.packages_build_paths }}" >> $GITHUB_ENV
-
+      run: |
+        # Split the input paths by spaces and store them in an array
+        IFS=' ' read -ra paths <<< "${{ github.event.inputs.packages_build_paths }}"
+        
+        # Initialize an empty string to store the converted absolute paths
+        converted_paths=""
+        
+        # Iterate over the paths array and convert each path to an absolute path using realpath
+        for path in "${paths[@]}"; do
+          absolute_path=$(realpath "$path")
+          converted_paths+=" $absolute_path"
+        done
+        
+        # Remove leading space from the converted_paths string
+        converted_paths="${converted_paths:1}"
+        
+        # Set the converted_paths string as the value in changed_packages_paths
+        echo "changed_packages_paths=$converted_paths" >> $GITHUB_ENV
+        
     - name: Ros Install
       ## checks if changed packages, on release branch also checks for full build tag
       if: ${{ env.changed_packages_paths != '' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && env.changed_packages_paths != '' }}
@@ -615,69 +676,52 @@ jobs:
         source /opt/ros/galactic/setup.bash
         
         # Run colcon list --topological-order command and extract the first fraction from each line
-        packages=$(colcon list --topological-order | awk '{print $1}')
-        
-        # Print the extracted packages
-        echo "$packages"
-        
-        input_package_paths=($changed_packages_paths)  # Replace with your desired package paths
-        new_list_paths=()
-        
-        for package in $packages; do
+        build_order=$(colcon list --topological-order | awk '{print $1}')
+        # IFS=' ' read -ra build_order_arry <<< "$build_order"
+        # IFS=' ' read -ra packages_paths_arry <<< "$changed_packages_paths"
+        build_order_arry=($build_order)
+        packages_paths_arry=($changed_packages_paths)
 
-          new_list_paths=()
-          
-          for package_path in "${input_package_paths[@]}"; do
-            if [ "$package" = "$(basename "$package_path")" ]; then
-              new_list_paths+=("$(dirname "$package_path")/$package")
-            fi
-          done
-        done
-        
-        echo "${new_list_paths[@]}"
-        
-        # Identify unique repositories containing the packages in the new list paths and create a separate list
-        repo_list=()
-        
-        for package_path in "${new_list_paths[@]}"; do
-          for repo in */; do
-            if [ -d "$repo" ]; then
-              if [ -d "${repo}${package_path}" ]; then
-                repo_name=${repo%/}
-                if [[ ! " ${repo_list[@]} " =~ " ${repo_name} " ]]; then
-                  repo_list+=("$repo_name")
+        for i in "${!build_order_arry[@]}"; do
+            for package_path in "${packages_paths_arry[@]}"; do
+                if [[ ${build_order_arry[$i]} = $(basename "$package_path") ]]; then
+                    next_packages_arry=("${build_order_arry[@]:$((i+1))}")
+                    break 2
                 fi
-              fi
-            fi
-          done
-        done
-        
-        echo "Unique repositories containing the packages:"
-        echo "${repo_list[@]}"
-        
-        # Trigger workflow on each repository with the packages as inputs
-        for repo_name in "${repo_list[@]}"; do
-          echo "Triggering workflow on repository: $repo_name"
-        
-          # Prepare the packages as input arguments
-          input_args=""
-          for package_path in "${new_list_paths[@]}"; do
-            if [ -d "$repo_name/$package_path" ]; then
-              input_args+=" $package_path"
-            fi
-          done
-        
-          # Trigger workflow using GitHub API
-          echo "new list paths: ${new_list_paths[@]}"
-          echo "Repo: $repo_name"
-          echo "pacakges paths: $input_args"
-          curl -X POST \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H "Accept: application/vnd.github.v3+json" \
-            "https://api.github.com/repos/$REPO_OWNER/$repo_name/actions/workflows/dev_ci.yaml/dispatches" \
-            -d '{"ref":"'$BRANCH'", "inputs": {"packages_build_paths": "'$input_args'"}}'
+            done
         done
 
+        if [[ ${#next_packages_arry[@]} -gt 0 ]]; then
+            echo "next package: ${next_packages_arry[0]}"
+        else
+            echo "No next packages found."
+        fi
+
+        # Identify unique repositories containing the packages in the new list paths and create a separate list
+        package_path_in_ros_ws=$(find . -type d -name "${next_packages_arry[0]}" -exec test -e "{}/package.xml" \; -print -quit)
+        if [[ -z "$package_path_in_ros_ws" ]]; then
+          echo "The package_path_in_ros_ws value is empty."
+          exit
+        fi
+
+        next_repo=$(echo $package_path_in_ros_ws | cut -d'/' -f2)
+        next_package_path=$(echo $package_path_in_ros_ws | cut -d'/' -f3-)
+
+        if [[ -z "$next_package_path" ]]; then
+          echo "The package_path_in_ros_ws value is empty."
+          next_package_path="."
+        fi
+
+        # Trigger workflow using GitHub API
+        echo "next packages: ${build_order}"
+        echo "next repo: $next_repo"
+        echo "next package: $next_package_path"
+        response=$(curl -s -o /dev/null -w "%{http_code}" -X POST https://api.github.com/repos/$REPO_OWNER/$next_repo/actions/workflows/dev-ci.yaml/dispatches -H "Accept: application/vnd.github.v3+json" -H "Authorization: token $GH_TOKEN" --data '{"ref": "'$BRANCH'", "inputs": {"packages_build_paths": "'$next_package_path'"}}')
+        if [ "$response" -ne 204 ]; then
+          echo "Failed to trigger the workflow. HTTP status was: $response"
+          exit 1
+        fi
+        
     - name: Post to a Slack channel
       if: ${{ always() }}
       id: slack
