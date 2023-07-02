@@ -124,26 +124,33 @@ jobs:
       ## checks if changed packages, on release branch also checks for full build tag
         if: ${{ env.changed_packages_paths != '' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && env.changed_packages_paths != '' }}
         run: |
-          echo $REPO_OWNER
-          echo $REPO
-          echo $BRANCH
-          branches=$(git for-each-ref --sort=-committerdate refs/remotes/origin --format='%(refname:short)' | cut -d / -f 2- | tr '\n' ' ')
+          # Get default branch
           default_branch=$(curl -H "Authorization: token $GH_TOKEN" -s https://api.github.com/repos/$REPO_OWNER/$REPO | jq -r '.default_branch')
-          echo $default_branch
-          sudo touch /etc/apt/sources.list.d/civ.list
-          sudo bash -c 'cat > /etc/apt/preferences.d/10-civ.pref << EOF
-          Package: *
-          Pin: release c='"$BRANCH"'
-          Pin-Priority: 1001
-          
-          EOF'          
-          sudo cat /etc/apt/preferences.d/10-civ.pref
-          for branch in $branches; do
-              echo "Branch name: $branch"
+
+          readarray -t branches < <(git show-branch -a | grep '\*' | awk 'match($0, /\[[^]]+\]/) { branch = substr($0, RSTART+1, RLENGTH-2); gsub(/origin\//, "", branch); gsub(/[~^].*/, "", branch); if (!seen[branch]++) print branch; if (branch == "develop" || branch == "main" || branch == "master") exit }' | uniq)
+
+          # Iterate over the branches array until a match is found, then trim the array
+          for ((idx=0; idx<${#branches[@]}; idx++)); do
+              if [[ "${branches[idx]}" =~ ^v[0-9]+\.[0-9]+$ ]] || [[ "${branches[idx]}" == "$default_branch" ]]; then
+                  branches=("${branches[@]:0:idx+1}")
+                  break
+              fi
           done
-          sudo sh -c "echo 'deb https://amir_b:$ARTIFACTORY_TOKEN@$ARTIFACTORY_URL galactic $BRANCH' >> /etc/apt/sources.list.d/civ.list"
-          sudo sh -c "echo 'deb https://amir_b:$ARTIFACTORY_TOKEN@$ARTIFACTORY_URL galactic $default_branch' >> /etc/apt/sources.list.d/civ.list"
-          sudo sh -c "echo 'deb https://amir_b:$ARTIFACTORY_TOKEN@$ARTIFACTORY_URL galactic main' >> /etc/apt/sources.list.d/civ.list"
+
+          priority=1001
+          
+          for branch in "${branches[@]}"; do
+              sudo bash -c "cat >> /etc/apt/preferences.d/10-civ.pref << EOF
+          Package: *
+          Pin: release c='$branch'
+          Pin-Priority: $priority
+          
+          EOF"
+              priority=$((priority - 1))
+              sudo sh -c "echo 'deb https://amir_b:$ARTIFACTORY_TOKEN@$ARTIFACTORY_URL galactic $branch' >> /etc/apt/sources.list.d/civ.list"
+          done
+          
+          sudo cat /etc/apt/preferences.d/10-civ.pref
           sudo cat /etc/apt/sources.list.d/civ.list
           wget -O civrobotics.pub https://amir_b:$ARTIFACTORY_TOKEN@civrobotics.jfrog.io/artifactory/api/security/keypair/debianKeys/public
           gpg --import civrobotics.pub
