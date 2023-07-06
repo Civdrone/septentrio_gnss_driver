@@ -40,7 +40,7 @@ env:
   BRANCH: ${{ github.ref_name }}
   REPO_OWNER: ${{ github.repository_owner }}
   REPO: ${{ github.event.repository.name }}
-  ARTIFACTORY_ROSDEP_MAP: ${{ secrets.artifactory_rosdep_map }}
+  ARTIFACTORY_ROSDEP_FILE: ${{ secrets.artifactory_rosdep_file }}
   ARTIFACTORY_TOKEN: ${{ secrets.artifactory_token }}
   ARTIFACTORY_URL: civrobotics.jfrog.io/artifactory/civros-unstable
   GH_TOKEN: ${{ secrets.gh_token }}
@@ -247,7 +247,7 @@ jobs:
           sudo apt-key add civrobotics.pub
           sudo apt update
           # downloading rosdep mapping file
-          sudo curl -u "Amir-civ:$GH_TOKEN" -L $ARTIFACTORY_ROSDEP_MAP -o /etc/ros/rosdep/sources.list.d/local.yaml
+          sudo curl -u "Amir-civ:$GH_TOKEN" -L $ARTIFACTORY_ROSDEP_FILE -o /etc/ros/rosdep/sources.list.d/local.yaml
           if [ $? -eq 0 ]; then
             echo "YAML file downloaded successfully!"
           else
@@ -472,7 +472,7 @@ jobs:
           sudo apt-key add civrobotics.pub
           sudo apt update
           # downloading rosdep mapping file
-          sudo curl -u "Amir-civ:$GH_TOKEN" -L $ARTIFACTORY_ROSDEP_MAP -o /etc/ros/rosdep/sources.list.d/local.yaml
+          sudo curl -u "Amir-civ:$GH_TOKEN" -L $ARTIFACTORY_ROSDEP_FILE -o /etc/ros/rosdep/sources.list.d/local.yaml
           if [ $? -eq 0 ]; then
             echo "YAML file downloaded successfully!"
           else
