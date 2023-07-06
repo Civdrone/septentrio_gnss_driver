@@ -40,7 +40,7 @@ env:
   BRANCH: ${{ github.ref_name }}
   REPO_OWNER: ${{ github.repository_owner }}
   REPO: ${{ github.event.repository.name }}
-  ARTIFACTORY_ROSDEP_FILE: ${{ secrets.artifactory_rosdep_file }}
+  ROSDEP_MAP_FILE: ${{ secrets.rosdep_map_file }}
   ARTIFACTORY_TOKEN: ${{ secrets.artifactory_token }}
   ARTIFACTORY_URL: civrobotics.jfrog.io/artifactory/civros-unstable
   GH_TOKEN: ${{ secrets.gh_token }}
@@ -49,8 +49,6 @@ env:
 jobs:
   initiate-workflow:
     runs-on: ubuntu-20.04
-    env:
-      working-directory: /actions-runner/_work/
     outputs:
       label-arm: ${{ steps.start-arm-runner.outputs.label || steps.manual-input.outputs.label-arm }}
       arm-instance-id: ${{ steps.start-arm-runner.outputs.ec2-instance-id || steps.manual-input.outputs.ec2-instance-id-arm }}
@@ -133,6 +131,12 @@ jobs:
         if: ${{ github.event_name == 'workflow_dispatch' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.PROMOTED_TAG == 'true' && github.event_name == 'workflow_dispatch' }}
         run: |
           # Split the input paths by spaces and store them in an array
+          echo "paths: ${{ github.event.inputs.packages_build_paths }}"
+          echo "arm lable: ${{ github.event.inputs.runner_arm_lable }}"
+          echo "arm id: ${{ github.event.inputs.runner_arm_id }}"
+          echo "amd lable: ${{ github.event.inputs.runner_amd_lable }}"
+          echo "amd id: ${{ github.event.inputs.runner_amd_id }}"
+
           IFS=' ' read -ra paths <<< "${{ github.event.inputs.packages_build_paths }}"
 
           # Initialize an empty string to store the converted absolute paths
@@ -206,6 +210,7 @@ jobs:
         run: |
           echo "$promote-tag $changed_packages_paths"
       - name: additional env installations
+        if: ${{ github.event_name != 'workflow_dispatch' }}
         run: |
           sudo ln -s /usr/include/eigen3/Eigen /usr/include/Eigen
 
@@ -247,7 +252,7 @@ jobs:
           sudo apt-key add civrobotics.pub
           sudo apt update
           # downloading rosdep mapping file
-          sudo curl -u "Amir-civ:$GH_TOKEN" -L $ARTIFACTORY_ROSDEP_FILE -o /etc/ros/rosdep/sources.list.d/local.yaml
+          sudo curl -u "Amir-civ:$GH_TOKEN" -L $ROSDEP_MAP_FILE -o /etc/ros/rosdep/sources.list.d/local.yaml
           if [ $? -eq 0 ]; then
             echo "YAML file downloaded successfully!"
           else
@@ -431,6 +436,7 @@ jobs:
           echo "$promote-tag $changed_packages_paths"
 
       - name: additional env installations
+        if: ${{ github.event_name != 'workflow_dispatch' }}
         run: |
           sudo ln -s /usr/include/eigen3/Eigen /usr/include/Eigen
 
@@ -472,7 +478,7 @@ jobs:
           sudo apt-key add civrobotics.pub
           sudo apt update
           # downloading rosdep mapping file
-          sudo curl -u "Amir-civ:$GH_TOKEN" -L $ARTIFACTORY_ROSDEP_FILE -o /etc/ros/rosdep/sources.list.d/local.yaml
+          sudo curl -u "Amir-civ:$GH_TOKEN" -L $ROSDEP_MAP_FILE -o /etc/ros/rosdep/sources.list.d/local.yaml
           if [ $? -eq 0 ]; then
             echo "YAML file downloaded successfully!"
           else
@@ -646,6 +652,10 @@ jobs:
     env:  # Set the environment variables at the job level
       promote-tag: ${{needs.initiate-workflow.outputs.promote-tag}}
       changed_packages_paths: ${{needs.initiate-workflow.outputs.changed_packages_paths}}
+      label_arm: ${{needs.initiate-workflow.outputs.label-arm}}
+      label_amd: ${{needs.initiate-workflow.outputs.label-amd}}
+      arm_instance_id: ${{needs.initiate-workflow.outputs.arm-instance-id}}
+      amd_instance_id: ${{needs.initiate-workflow.outputs.amd-instance-id}}
     steps:
     - name: checkout
       uses: actions/checkout@v3
@@ -717,7 +727,12 @@ jobs:
           echo "next packages: ${build_order_arry[@]}"
           echo "next repo: $next_repo"
           echo "next package: $next_package_path"
-          response=$(curl -s -o /dev/null -w "%{http_code}" -X POST https://api.github.com/repos/$REPO_OWNER/$next_repo/actions/workflows/dev-ci.yaml/dispatches -H "Accept: application/vnd.github.v3+json" -H "Authorization: token $GH_TOKEN" --data '{"ref": "'$BRANCH'", "inputs": {"packages_build_paths": "'$next_package_path'"}}')
+          # response=$(curl -s -o /dev/null -w "%{http_code}" -X POST https://api.github.com/repos/$REPO_OWNER/$next_repo/actions/workflows/dev-ci.yaml/dispatches -H "Accept: application/vnd.github.v3+json" -H "Authorization: token $GH_TOKEN" --data '{"ref": "'$BRANCH'", "inputs": {"packages_build_paths": "'$next_package_path'"}}')
+          echo "'$amd_instance_id'"
+          echo "'$label_amd'"
+          echo "'$arm_instance_id'"
+          echo "'$label_arm'"
+          response=$(curl -s -o /dev/null -w "%{http_code}" -X POST https://api.github.com/repos/$REPO_OWNER/$next_repo/actions/workflows/CI.yaml/dispatches -H "Accept: application/vnd.github.v3+json" -H "Authorization: token $GH_TOKEN" --data '{"ref": "'$BRANCH'", "inputs": {"packages_build_paths": "'$next_package_path'", "runner_amd_lable": "'$label_amd'", "runner_arm_lable": "'$label_arm'", "runner_arm_id": "'$arm_instance_id'", "runner_amd_id": "'$amd_instance_id'"}}')          
           if [ "$response" -ne 204 ]; then
             echo "Failed to trigger the workflow. HTTP status was: $response"
             exit 1
@@ -749,7 +764,7 @@ jobs:
   stop-runners:
     needs: [initiate-workflow, arm_build, amd_build, depends_on_trigger]
     runs-on: ubuntu-20.04
-    if: ${{ needs.depends_on_trigger.result == 'success' && needs.depends_on_trigger.outputs.recursion_ends == 'true' || failure() }}
+    if: ${{ needs.depends_on_trigger.result == 'success' && needs.depends_on_trigger.outputs.recursion_ends == 'true' || failure() || cancelled() }}
     steps:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v2
