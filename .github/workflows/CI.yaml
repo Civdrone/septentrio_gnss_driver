@@ -685,10 +685,9 @@ jobs:
         
         # Run colcon list --topological-order command and extract the first fraction from each line
         build_order=$(colcon list --topological-order | awk '{print $1}')
-        # IFS=' ' read -ra build_order_arry <<< "$build_order"
-        # IFS=' ' read -ra packages_paths_arry <<< "$changed_packages_paths"
         build_order_arry=($build_order)
         packages_paths_arry=($changed_packages_paths)
+        recursion_ends="false"
 
         for i in "${!build_order_arry[@]}"; do
             for package_path in "${packages_paths_arry[@]}"; do
@@ -703,26 +702,27 @@ jobs:
             echo "next package: ${next_packages_arry[0]}"
         else
             echo "No next packages found."
+            recursion_ends="true"
         fi
 
         # Identify unique repositories containing the packages in the new list paths and create a separate list
         package_path_in_ros_ws=$(find . -type d -name "${next_packages_arry[0]}" -exec test -e "{}/package.xml" \; -print -quit)
+        
         if [[ -z "$package_path_in_ros_ws" ]]; then
           echo "The package_path_in_ros_ws value is empty."
-          exit
         fi
 
         next_repo=$(echo $package_path_in_ros_ws | cut -d'/' -f2)
         next_package_path=$(echo $package_path_in_ros_ws | cut -d'/' -f3-)
 
-        recursion_ends="false"
-        if [[ -z "$next_package_path" ]]; then
-          echo "The package_path_in_ros_ws value is empty."
-          next_package_path="."
-          recursion_ends="true"
-        fi
         echo "recursion_ends=$recursion_ends" >> "$GITHUB_OUTPUT"
         if [[ $recursion_ends == "false" ]]; then
+
+          if [[ -z "$next_package_path" ]]; then
+            echo "Next package path is empty, assining relative path."
+            next_package_path="."
+          fi
+
           # Trigger workflow using GitHub API
           echo "next packages: ${build_order_arry[@]}"
           echo "next repo: $next_repo"
