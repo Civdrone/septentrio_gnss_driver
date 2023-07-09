@@ -4,23 +4,23 @@ on:
   workflow_dispatch:
     inputs:
       packages_build_paths:
-        description: 'intput packages paths to build seperated by spaces'
+        description: 'intput package to trigger build'
         required: true
         default: ''
       runner_amd_lable:
-        description: 'aws self hosted runner amd lable to run jobs '
+        description: 'aws self hosted runner amd lable to run jobs (optional)'
         required: false
         default: ''
       runner_arm_lable:
-        description: 'aws self hosted runner arm lable to run jobs '
+        description: 'aws self hosted runner arm lable to run jobs (optional)'
         required: false
         default: ''
       runner_arm_id:
-        description: 'aws self hosted runner arm id to run jobs '
+        description: 'aws self hosted runner arm id to run jobs (optional)'
         required: false
         default: ''
       runner_amd_id:
-        description: 'aws self hosted runner amd id to run jobs '
+        description: 'aws self hosted runner amd id to run jobs (optional)'
         required: false
         default: ''
   push:
@@ -737,8 +737,8 @@ jobs:
             echo "Failed to trigger the workflow. HTTP status was: $response"
             exit 1
           fi
+          curl -X POST -u amir_b:$ARTIFACTORY_TOKEN "https://civrobotics.jfrog.io/artifactory/api/deb/reindex/civros-unstable?writeProps=0"
         fi
-        curl -X POST -u amir_b:$ARTIFACTORY_TOKEN "https://civrobotics.jfrog.io/artifactory/api/deb/reindex/civros-unstable?writeProps=1"
 
     - name: Discard Local Changes
       ## checks if changed packages, on release branch also checks for full build tag
