@@ -171,7 +171,7 @@ jobs:
       - name: Start AMD runner
         if: ${{ github.event_name != 'workflow_dispatch' || (github.event_name == 'workflow_dispatch' && (steps.manual-input.outputs.label-arm == '' || steps.manual-input.outputs.label-amd == '')) }}
         id: start-amd-runner
-        uses: Amir-civ/ec2-github-runner@main
+        uses: Amir-civ/ec2-github-runner@v1
         with:
           mode: start
           github-token: ${{ secrets.gh_token }}
@@ -183,7 +183,7 @@ jobs:
       - name: Start ARM runner
         if: ${{ github.event_name != 'workflow_dispatch' || (github.event_name == 'workflow_dispatch' && (steps.manual-input.outputs.label-arm == '' || steps.manual-input.outputs.label-amd == '')) }}
         id: start-arm-runner
-        uses: Amir-civ/ec2-github-runner@main
+        uses: Amir-civ/ec2-github-runner@v1
         with:
           mode: start
           github-token: ${{ secrets.gh_token }}
@@ -206,9 +206,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Hello arm
-        run: |
-          echo "$promote-tag $changed_packages_paths"
       - name: additional env installations
         if: ${{ github.event_name != 'workflow_dispatch' }}
         run: |
@@ -379,18 +376,23 @@ jobs:
           else
               echo "Failed to download repo.csv file."
           fi
+
           # Read the CSV file and cencel repositories
           while IFS=, read -r repo || [ -n "$repo" ]; do
-            # Get the most recent workflow run ID for the specified branch
+            # Get the most recent workflow run ID for the specified event and branch
             run_id=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
-            "https://api.github.com/repos/$REPO_OWNER/$repo/actions/runs?branch=$BRANCH&event=push" \
+            "https://api.github.com/repos/$REPO_OWNER/$repo/actions/runs?branch=$BRANCH" \
             | jq -r '.workflow_runs[0].id')
 
-            # Cancel the workflow run
-            curl -X POST -s -H "Authorization: Bearer $GH_TOKEN" \
-            "https://api.github.com/repos/$REPO_OWNER/$repo/actions/runs/$run_id/cancel"
+            # Cancel the workflow run if a run ID is found
+            if [ "$run_id" != "null" ]; then
+                curl -X POST -s -H "Authorization: Bearer $GH_TOKEN" \
+                "https://api.github.com/repos/$REPO_OWNER/$repo/actions/runs/$run_id/cancel"
 
-            echo "Workflow run $run_id has been canceled"
+                echo "Workflow run $run_id has been canceled"
+            else
+                echo "No workflow run found for $repo"
+            fi
           done < ./repo.csv
           # update commit status
           curl -X POST -H "Authorization: token $GH_TOKEN" -H "Accept: application/vnd.github.v3+json" https://api.github.com/repos/$REPO_OWNER/$REPO/statuses/${COMMIT_ID} -d '{"state": "failure", "context": "continuous-integration/build-${BUILD_NUMBER"}'
@@ -430,10 +432,6 @@ jobs:
         uses: actions/checkout@v3
         with:
           fetch-depth: 0
-          
-      - name: Hello amd
-        run: |
-          echo "$promote-tag $changed_packages_paths"
 
       - name: additional env installations
         if: ${{ github.event_name != 'workflow_dispatch' }}
@@ -605,18 +603,23 @@ jobs:
           else
               echo "Failed to download repo.csv file."
           fi
+
           # Read the CSV file and cencel repositories
           while IFS=, read -r repo || [ -n "$repo" ]; do
-            # Get the most recent workflow run ID for the specified branch
-            run_id=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
-            "https://api.github.com/repos/$REPO_OWNER/$repo/actions/runs?branch=$BRANCH&event=push" \
-            | jq -r '.workflow_runs[0].id')
+          # Get the most recent workflow run ID for the specified event and branch
+          run_id=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
+          "https://api.github.com/repos/$REPO_OWNER/$repo/actions/runs?branch=$BRANCH" \
+          | jq -r '.workflow_runs[0].id')
 
-            # Cancel the workflow run
-            curl -X POST -s -H "Authorization: Bearer $GH_TOKEN" \
-            "https://api.github.com/repos/$REPO_OWNER/$repo/actions/runs/$run_id/cancel"
+          # Cancel the workflow run if a run ID is found
+          if [ "$run_id" != "null" ]; then
+              curl -X POST -s -H "Authorization: Bearer $GH_TOKEN" \
+              "https://api.github.com/repos/$REPO_OWNER/$repo/actions/runs/$run_id/cancel"
 
-            echo "Workflow run $run_id has been canceled"
+              echo "Workflow run $run_id has been canceled"
+          else
+              echo "No workflow run found for $repo"
+          fi
           done < ./repo.csv
           # update commit status
           curl -X POST -H "Authorization: token $GH_TOKEN" -H "Accept: application/vnd.github.v3+json" https://api.github.com/repos/$REPO_OWNER/$REPO/statuses/${COMMIT_ID} -d '{"state": "failure", "context": "continuous-integration/build-${BUILD_NUMBER"}'
@@ -775,7 +778,7 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Stop AMD runner
-        uses: Amir-civ/ec2-github-runner@main
+        uses: Amir-civ/ec2-github-runner@v1
         with:
           mode: stop
           github-token: ${{ secrets.gh_token }}
@@ -783,7 +786,7 @@ jobs:
           ec2-instance-id: ${{ needs.initiate-workflow.outputs.amd-instance-id }}
 
       - name: Stop ARM runner
-        uses: Amir-civ/ec2-github-runner@main
+        uses: Amir-civ/ec2-github-runner@v1
         with:
           mode: stop
           github-token: ${{ secrets.gh_token }}
