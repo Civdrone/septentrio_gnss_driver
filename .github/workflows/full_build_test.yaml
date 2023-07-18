@@ -7,7 +7,9 @@ on:
       - develop
       - 'v[0-9]+.[0-9]+'
 
-concurrency: lock-${{ github.ref }}
+concurrency:
+  group: lock-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   WORKSPACE_PATH: ${{ github.workspace }}
@@ -68,22 +70,24 @@ jobs:
       - name: Checkout branches
         run: |
           cd ros_ws
-          target_branch_name=(${{ github.event.pull_request.base.ref }})
-          base_branch_name=(${{ github.head_ref }})
-
+          target_branch_name=${{ github.event.pull_request.base.ref }}
+          base_branch_name=${{ github.head_ref }}
+      
           echo "triggered branch: $target_branch_name"
           echo "base_branch_name: $base_branch_name"
           while IFS=, read -r repo || [ -n "$repo" ]; do
+            echo "Current directory: $(pwd)"
+            ls
             echo "entering: $repo"
             cd "$repo"
-            if [ "$repo" == "$REPO" ]; then
-              echo "checking out to current branch and repo.repo: $REPO branch: $base_branch_name"
-              git checkout "$base_branch_name"
+            if [[ "$repo" = "$REPO" ]]; then
+              echo "Repo is $repo_name, checking out to base branch"
+              git checkout $base_branch_name
             else
-                echo "checking out to BRANCH: $target_branch_name"
-                git checkout $target_branch_name
-            cd ..
+              echo "Checking out to target branch"
+              git checkout $target_branch_name
             fi
+            cd ..
           done < repo.csv
 
       - name: Full build test
@@ -91,6 +95,20 @@ jobs:
           cd ros_ws
           source /opt/ros/galactic/setup.bash
           colcon build
+          
+      - name: Post to a Slack channel
+        if: ${{ always() }}
+        id: slack
+        uses: slackapi/slack-github-action@v1.23.0
+        with:
+          # Slack channel id, channel name, or user id to post message.
+          # See also: https://api.slack.com/methods/chat.postMessage#channels
+          # You can pass in multiple channels to post to by providing a comma-delimited list of channel IDs.
+          channel-id: 'C051SPVTW2Z'
+          # For posting a simple plain text message
+          slack-message: "GitHub build result: ${{ job.status }}\nWorkflow: ${{ github.job }}\nRepository: ${{ github.event.repository.name }}\nBase_Branch:${{ github.head_ref }}\nTarget Branch: ${{ github.event.pull_request.base.ref }}\nBuild Number: ${{ github.run_number }}\nLink:${{ github.event.pull_request.html_url || github.event.head_commit.url }}"
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
 
   stop-runners:
     needs: [initiate-workflow, full-build-test]
