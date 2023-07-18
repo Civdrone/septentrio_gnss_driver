@@ -65,8 +65,6 @@ jobs:
             git clone https://Amir-civ:${{ secrets.GH_TOKEN }}@github.com/${{ env.REPO_OWNER }}/$repo.git
           done < repo.csv
 
-          git clone https://Amir-civ:${{ secrets.GH_TOKEN }}@github.com/${{ env.REPO_OWNER }}/scripts.git
-
       - name: Checkout branches
         run: |
           cd ros_ws
