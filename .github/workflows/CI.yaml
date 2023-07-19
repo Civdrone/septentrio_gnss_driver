@@ -116,6 +116,7 @@ jobs:
 
           # Set the `changed_packages_paths` environment variable with the list of unique packages paths
           echo "changed_packages_paths=${unique_packages_paths[*]}" >> "$GITHUB_OUTPUT"
+          echo "changed_packages_paths=${unique_packages_paths[*]}" >> "$GITHUB_ENV"
 
       - name: Get workflow manual input
         id: manual-input
@@ -147,13 +148,14 @@ jobs:
           
           # Set the converted_paths string as the value in changed_packages_paths
           echo "changed_packages_paths=$converted_paths" >> "$GITHUB_OUTPUT"
+          echo "changed_packages_paths=$converted_paths" >> "$GITHUB_ENV"
           echo "label-arm=${{ github.event.inputs.runner_arm_lable }}" >> "$GITHUB_OUTPUT"
           echo "label-amd=${{ github.event.inputs.runner_amd_lable }}" >> "$GITHUB_OUTPUT"
           echo "ec2-instance-id-arm=${{ github.event.inputs.runner_arm_id }}" >> "$GITHUB_OUTPUT"
           echo "ec2-instance-id-amd=${{ github.event.inputs.runner_amd_id }}" >> "$GITHUB_OUTPUT"
 
       - name: Configure AWS credentials
-        if: ${{ github.event_name != 'workflow_dispatch' && needs.initiate-workflow.outputs.changed_packages_paths != '' || (github.event_name == 'workflow_dispatch' && (steps.manual-input.outputs.label-arm == '' || steps.manual-input.outputs.label-amd == '')) }}
+        if: ${{ github.event_name != 'workflow_dispatch' && env.changed_packages_paths != '' || (github.event_name == 'workflow_dispatch' && (steps.manual-input.outputs.label-arm == '' || steps.manual-input.outputs.label-amd == '')) }}
         uses: aws-actions/configure-aws-credentials@v2
         with:
           aws-access-key-id: ${{ secrets.CI_AWS_ACCESS_KEY_ID }}
@@ -161,7 +163,7 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Start AMD runner
-        if: ${{ github.event_name != 'workflow_dispatch' && needs.initiate-workflow.outputs.changed_packages_paths != '' || (github.event_name == 'workflow_dispatch' && (steps.manual-input.outputs.label-arm == '' || steps.manual-input.outputs.label-amd == '')) }}
+        if: ${{ github.event_name != 'workflow_dispatch' && env.changed_packages_paths != '' || (github.event_name == 'workflow_dispatch' && (steps.manual-input.outputs.label-arm == '' || steps.manual-input.outputs.label-amd == '')) }}
         id: start-amd-runner
         uses: Amir-civ/ec2-github-runner@v1
         with:
@@ -173,7 +175,7 @@ jobs:
           security-group-id: sg-095940a96979f1b1d
 
       - name: Start ARM runner
-        if: ${{ github.event_name != 'workflow_dispatch' && needs.initiate-workflow.outputs.changed_packages_paths != '' || (github.event_name == 'workflow_dispatch' && (steps.manual-input.outputs.label-arm == '' || steps.manual-input.outputs.label-amd == '')) }}
+        if: ${{ github.event_name != 'workflow_dispatch' && env.changed_packages_paths != '' || (github.event_name == 'workflow_dispatch' && (steps.manual-input.outputs.label-arm == '' || steps.manual-input.outputs.label-amd == '')) }}
         id: start-arm-runner
         uses: Amir-civ/ec2-github-runner@v1
         with:
