@@ -1,4 +1,5 @@
 name: ci-new-design
+run-name: ${{ github.event_name == 'workflow_dispatch' && format('C - {0} | S - {1} *{2} | P - {3} *{4}', github.event.inputs.commiter, github.event.inputs.source_repo, github.event.inputs.source_build, github.event.inputs.prev_repo, github.event.inputs.prev_build) || github.event.head_commit.message }}
 
 on:
   workflow_dispatch:
@@ -7,6 +8,28 @@ on:
         description: 'intput package to trigger build'
         required: true
         default: ''
+
+      source_repo:
+        description: 'Input source repository to trigger build'
+        required: false
+        default: ''
+      source_build:
+        description: 'Input source build number'
+        required: false
+        default: ''
+      prev_repo:
+        description: 'Input previous repository'
+        required: false
+        default: ''
+      prev_build:
+        description: 'Input previous build number'
+        required: false
+        default: ''
+      commiter:
+        description: 'Input of the commiter'
+        required: false
+        default: ''
+
       runner_amd_lable:
         description: 'aws self hosted runner amd lable to run jobs (optional)'
         required: false
@@ -404,12 +427,15 @@ jobs:
         id: slack
         uses: slackapi/slack-github-action@v1.23.0
         with:
-          # Slack channel id, channel name, or user id to post message.
-          # See also: https://api.slack.com/methods/chat.postMessage#channels
-          # You can pass in multiple channels to post to by providing a comma-delimited list of channel IDs.
           channel-id: 'C051SPVTW2Z'
-          # For posting a simple plain text message
-          slack-message: "GitHub build result: ${{ job.status }}\nWorkflow: ${{ github.job }}\nRepository: ${{ github.event.repository.name }}\nBranch: ${{ github.ref_name }}\nBuild Number: ${{ github.run_number }}\n${{ github.event.pull_request.html_url || github.event.head_commit.url }}"
+          slack-message: |
+            GitHub build result: ${{ job.status }}
+            Workflow: ${{ github.job }}
+            Repository: ${{ github.event.repository.name }}
+            Branch: ${{ github.ref_name }}
+            Build Number: ${{ github.run_number }}
+            Triggered by: ${{ github.actor }}
+            Workflow URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
 
@@ -633,12 +659,15 @@ jobs:
         id: slack
         uses: slackapi/slack-github-action@v1.23.0
         with:
-          # Slack channel id, channel name, or user id to post message.
-          # See also: https://api.slack.com/methods/chat.postMessage#channels
-          # You can pass in multiple channels to post to by providing a comma-delimited list of channel IDs.
           channel-id: 'C051SPVTW2Z'
-          # For posting a simple plain text message
-          slack-message: "GitHub build result: ${{ job.status }}\nWorkflow: ${{ github.job }}\nRepository: ${{ github.event.repository.name }}\nBranch: ${{ github.ref_name }}\nBuild Number: ${{ github.run_number }}\n${{ github.event.pull_request.html_url || github.event.head_commit.url }}"
+          slack-message: |
+            GitHub build result: ${{ job.status }}
+            Workflow: ${{ github.job }}
+            Repository: ${{ github.event.repository.name }}
+            Branch: ${{ github.ref_name }}
+            Build Number: ${{ github.run_number }}
+            Triggered by: ${{ github.actor }}
+            Workflow URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
 
@@ -732,7 +761,32 @@ jobs:
           echo "'$label_amd'"
           echo "'$arm_instance_id'"
           echo "'$label_arm'"
-          response=$(curl -s -o /dev/null -w "%{http_code}" -X POST https://api.github.com/repos/$REPO_OWNER/$next_repo/actions/workflows/CI.yaml/dispatches -H "Accept: application/vnd.github.v3+json" -H "Authorization: token $GH_TOKEN" --data '{"ref": "'$BRANCH'", "inputs": {"packages_build_paths": "'$next_package_path'", "runner_amd_lable": "'$label_amd'", "runner_arm_lable": "'$label_arm'", "runner_arm_id": "'$arm_instance_id'", "runner_amd_id": "'$amd_instance_id'"}}')          
+
+          source_repo=${{  github.event_name == 'workflow_dispatch' && github.event.inputs.source_repo || env.REPO }}
+          source_build=${{  github.event_name == 'workflow_dispatch' && github.event.inputs.source_build || env.BUILD_NUMBER }}
+          prev_repo=${{ env.REPO }}
+          prev_build=${{ env.BUILD_NUMBER }}
+          commiter=${{ github.event_name == 'workflow_dispatch' && github.event.inputs.commiter || github.actor}}
+
+          response=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
+          https://api.github.com/repos/$REPO_OWNER/$next_repo/actions/workflows/CI.yaml/dispatches \
+          -H "Accept: application/vnd.github.v3+json" \
+          -H "Authorization: token $GH_TOKEN" \
+          --data '{
+            "ref": "'$BRANCH'",
+            "inputs": {
+              "packages_build_paths": "'$next_package_path'",
+              "runner_amd_lable": "'$label_amd'",
+              "runner_arm_lable": "'$label_arm'",
+              "runner_arm_id": "'$arm_instance_id'",
+              "runner_amd_id": "'$amd_instance_id'",
+              "source_repo": "'$source_repo'",
+              "source_build": "'$source_build'",
+              "prev_repo": "'$prev_repo'",
+              "prev_build": "'$prev_build'",
+              "commiter": "'$commiter'"
+            }
+          }')       
           if [ "$response" -ne 204 ]; then
             echo "Failed to trigger the workflow. HTTP status was: $response"
             exit 1
@@ -749,7 +803,7 @@ jobs:
         git clean -f
 
     - name: Post to a Slack channel
-      if: ${{ always() }}
+      if: ${{ failure() || cancelled() }}
       id: slack
       uses: slackapi/slack-github-action@v1.23.0
       with:
@@ -758,7 +812,14 @@ jobs:
         # You can pass in multiple channels to post to by providing a comma-delimited list of channel IDs.
         channel-id: 'C051SPVTW2Z'
         # For posting a simple plain text message
-        slack-message: "GitHub build result: ${{ job.status }}\nWorkflow: ${{ github.job }}\nRepository: ${{ github.event.repository.name }}\nBranch: ${{ github.ref_name }}\nBuild Number: ${{ github.run_number }}\n${{ github.event.pull_request.html_url || github.event.head_commit.url }}"
+        slack-message: |
+          GitHub build result: ${{ job.status }}
+          Workflow: ${{ github.job }}
+          Repository: ${{ github.event.repository.name }}
+          Branch: ${{ github.ref_name }}
+          Build Number: ${{ github.run_number }}
+          Triggered by: ${{ github.actor }}
+          Workflow URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
       env:
         SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
         
