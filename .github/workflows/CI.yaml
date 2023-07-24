@@ -346,6 +346,7 @@ jobs:
         ## checks if changed packages_paths & built packages, on release branch also checks for full build tag
         if: ${{ env.built_packages == 'true' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && env.built_packages == 'true' }}
         run: |
+          export HOME=/home/ubuntu
           git clone https://"Amir-civ:$GH_TOKEN"@github.com/Civdrone/scripts.git
           cd scripts
           git checkout ci-github-actions
@@ -577,6 +578,7 @@ jobs:
         ## checks if changed packages_paths & built packages, on release branch also checks for full build tag
         if: ${{ env.built_packages == 'true' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && env.built_packages == 'true' }}
         run: |
+          export HOME=/home/ubuntu
           git clone https://"Amir-civ:$GH_TOKEN"@github.com/Civdrone/scripts.git
           cd scripts
           git checkout ci-github-actions
@@ -673,7 +675,7 @@ jobs:
 
   depends_on_trigger:
     needs: [amd_build, arm_build, initiate-workflow]
-    if: ${{ (github.ref_name == 'develop' || contains(github.ref_name, '^v[0-9]+\\.[0-9]+$')) && needs.amd_build.result == 'success' && needs.arm_build.result == 'success' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && (github.ref_name == 'develop' || contains(github.ref_name, '^v[0-9]+\\.[0-9]+$')) && needs.amd_build.result == 'success' && needs.arm_build.result == 'success' }}
     runs-on: ${{ needs.initiate-workflow.outputs.label-amd }} # run the job on the newly created runner
     timeout-minutes: 20
     outputs:
@@ -829,8 +831,8 @@ jobs:
     timeout-minutes: 20
     if: |
       always() && (needs.initiate-workflow.outputs.label-amd != null || needs.initiate-workflow.outputs.label-arm != null) &&
-      !(needs.depends_on_trigger.result == 'success' && needs.depends_on_trigger.outputs.recursion_ends != 'true')
-    
+      (github.event_name != 'workflow_dispatch' || (needs.depends_on_trigger.result != 'success' || (needs.depends_on_trigger.result == 'success' && needs.depends_on_trigger.outputs.recursion_ends == 'true')))
+
     steps:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v2
