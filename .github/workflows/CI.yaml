@@ -77,32 +77,46 @@ jobs:
       promote-tag: ${{ steps.promote-tag.outputs.PROMOTED_TAG }}
       changed_packages_paths: ${{ steps.manual-input.outputs.changed_packages_paths || steps.changed-packages.outputs.changed_packages_paths }}
       packages_names: ${{ steps.manual-input.outputs.packages_names || steps.changed-packages.outputs.packages_names }}
+      release_branch: ${{ steps.check-release.outputs.RELEASE_BRANCH }}
     steps:
       - name: checkout
-        if: ${{ !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') }}
         uses: actions/checkout@v3
         with:
           fetch-depth: 0
+
+      - name: Check release branch
+        id: check-release
+        run: |
+          if [[ $BRANCH =~ ^v[0-9]+\.[0-9]+$ ]]; then
+              echo "RELEASE_BRANCH=true" >> $GITHUB_OUTPUT
+              echo "RELEASE_BRANCH=true" >> "$GITHUB_ENV"
+              echo "on release branch $BRANCH "
+          fi
           
       - name: Check release promoteted tag
         id: promote-tag
-        if: contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$')
+        if: env.RELEASE_BRANCH == 'true'
         run: |
           # Run the command to check if the full build tag exists in civros-release
-          PROMOTED_TAG=$(git ls-remote --refs --tags https://github.com/Civdrone/civros-release.git "${BRANCH}-promoted" | awk '{print $2}' | sed 's/refs\/tags\///')
-          if [ -z "$PROMOTED_TAG" ]; then
-            echo "PROMOTED_TAG variable is empty"
-            exit 1
-          else
-            echo "TAG variable is not empty, value is: $PROMOTED_TAG"
+          git clone https://"Amir-civ:$GH_TOKEN"@github.com/Civdrone/civros-release.git
+          cd civros-release
+
+          # Check if the tag exists
+          if git rev-parse "$BRANCH-promoted" >/dev/null 2>&1; then
+            # The tag exists
+            PROMOTED_TAG=$(git rev-parse "$BRANCH-promoted")
             echo "PROMOTED_TAG=true" >> "$GITHUB_OUTPUT"
             echo "PROMOTED_TAG=true" >> "$GITHUB_ENV"
+          else
+            # The tag does not exist
+            echo "PROMOTED_TAG variable is empty"
+            exit 1
           fi
 
       - name: Get unique changed packages
         id: changed-packages
         ## checks if trigger on push event, on release branch also checks for full build tag
-        if: ${{ github.event_name == 'push' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.PROMOTED_TAG == 'true' && github.event_name == 'push' }}
+        if: ${{ github.event_name == 'push' }}
         run: |
           mapfile -t CHANGED_FILES < <(git diff --name-only ${{ github.event.before }} ${{ github.event.after }})
           # Initialize unique_packages_paths
@@ -149,7 +163,7 @@ jobs:
       - name: Get workflow manual input
         id: manual-input
         ## checks if trigger on dispatch event, on release branch also checks for full build tag
-        if: ${{ github.event_name == 'workflow_dispatch' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.PROMOTED_TAG == 'true' && github.event_name == 'workflow_dispatch' }}
+        if: ${{ github.event_name == 'workflow_dispatch' }}
         run: |
           # Split the input paths by spaces and store them in an array
           echo "paths: ${{ github.event.inputs.packages_build_paths }}"
@@ -187,7 +201,7 @@ jobs:
           echo "packages_names=${packages_names}" >> "$GITHUB_OUTPUT"
 
       - name: Configure AWS credentials
-        if: ${{ github.event_name != 'workflow_dispatch' && env.changed_packages_paths != '' || (github.event_name == 'workflow_dispatch' && (steps.manual-input.outputs.label-arm == '' || steps.manual-input.outputs.label-amd == '')) }}
+        if: ${{ github.event_name == 'push' && env.changed_packages_paths != '' || github.event_name == 'workflow_dispatch' && (steps.manual-input.outputs.label-arm == '' || steps.manual-input.outputs.label-amd == '') }}
         uses: aws-actions/configure-aws-credentials@v2
         with:
           aws-access-key-id: ${{ secrets.CI_AWS_ACCESS_KEY_ID }}
@@ -195,7 +209,7 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Start AMD runner
-        if: ${{ github.event_name != 'workflow_dispatch' && env.changed_packages_paths != '' || (github.event_name == 'workflow_dispatch' && (steps.manual-input.outputs.label-arm == '' || steps.manual-input.outputs.label-amd == '')) }}
+        if: ${{ github.event_name == 'push' && env.changed_packages_paths != '' || github.event_name == 'workflow_dispatch' && (steps.manual-input.outputs.label-arm == '' || steps.manual-input.outputs.label-amd == '') }}
         id: start-amd-runner
         uses: Amir-civ/ec2-github-runner@v1
         with:
@@ -207,7 +221,7 @@ jobs:
           security-group-id: sg-095940a96979f1b1d
 
       - name: Start ARM runner
-        if: ${{ github.event_name != 'workflow_dispatch' && env.changed_packages_paths != '' || (github.event_name == 'workflow_dispatch' && (steps.manual-input.outputs.label-arm == '' || steps.manual-input.outputs.label-amd == '')) }}
+        if: ${{ github.event_name == 'push' && env.changed_packages_paths != '' || github.event_name == 'workflow_dispatch' && (steps.manual-input.outputs.label-arm == '' || steps.manual-input.outputs.label-amd == '') }}
         id: start-arm-runner
         uses: Amir-civ/ec2-github-runner@v1
         with:
@@ -228,7 +242,6 @@ jobs:
       changed_packages_paths: ${{needs.initiate-workflow.outputs.changed_packages_paths}}
     steps:
       - name: checkout
-        if: ${{ !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') }}
         uses: actions/checkout@v3
         with:
           fetch-depth: 0
@@ -239,8 +252,6 @@ jobs:
           sudo ln -s /usr/include/eigen3/Eigen /usr/include/Eigen
 
       - name: Update artifactory server
-        ## checks if changed packages, on release branch also checks for full build tag
-        if: ${{ !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' }}
         run: |
           # Get default branch
           default_branch=$(curl -H "Authorization: token $GH_TOKEN" -s https://api.github.com/repos/$REPO_OWNER/$REPO | jq -r '.default_branch')
@@ -285,8 +296,6 @@ jobs:
           sudo sh -c 'echo "yaml file:///etc/ros/rosdep/sources.list.d/local.yaml" >> /etc/ros/rosdep/sources.list.d/20-default.list'
 
       - name: Build deb package
-        ## checks if changed packages, on release branch also checks for full build tag
-        # if: ${{ !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' }}
         id: build_deb_package
         run: |
           built_packages=true
@@ -313,8 +322,7 @@ jobs:
           echo "built_packages=$built_packages" >> $GITHUB_ENV
 
       - name: Push to artifactory server
-        ## checks if changed packages & built packages, on release branch also checks for full build tag
-        if: ${{ env.built_packages == 'true' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && env.built_packages == 'true' }}
+        if: ${{ env.built_packages == 'true' }}
         run: |
           # convert the list to an array
           IFS=' ' read -ra changed_packages_paths_arry <<< "$changed_packages_paths"
@@ -352,8 +360,7 @@ jobs:
           done
 
       - name: Update rosdep yaml file
-        ## checks if changed packages_paths & built packages, on release branch also checks for full build tag
-        if: ${{ env.built_packages == 'true' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && env.built_packages == 'true' }}
+        if: ${{ env.built_packages == 'true' }}
         run: |
           export HOME=/home/ubuntu
           git clone https://"Amir-civ:$GH_TOKEN"@github.com/Civdrone/scripts.git
@@ -466,7 +473,6 @@ jobs:
     
     steps:
       - name: checkout
-        if: ${{ !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') }}
         uses: actions/checkout@v3
         with:
           fetch-depth: 0
@@ -477,8 +483,6 @@ jobs:
           sudo ln -s /usr/include/eigen3/Eigen /usr/include/Eigen
 
       - name: Update artifactory server
-        ## checks if changed packages, on release branch also checks for full build tag
-        if: ${{ !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' }}
         run: |
           # Get default branch
           default_branch=$(curl -H "Authorization: token $GH_TOKEN" -s https://api.github.com/repos/$REPO_OWNER/$REPO | jq -r '.default_branch')
@@ -523,8 +527,6 @@ jobs:
           sudo sh -c 'echo "yaml file:///etc/ros/rosdep/sources.list.d/local.yaml" >> /etc/ros/rosdep/sources.list.d/20-default.list'
 
       - name: Build deb package
-        ## checks if changed packages, on release branch also checks for full build tag
-        # if: ${{ !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' }}
         id: build_deb_package
         run: |
           built_packages=true
@@ -551,8 +553,7 @@ jobs:
           echo "built_packages=$built_packages" >> $GITHUB_ENV
 
       - name: Push to artifactory server
-        ## checks if changed packages & built packages, on release branch also checks for full build tag
-        if: ${{ env.built_packages == 'true' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && env.built_packages == 'true' }}
+        if: ${{ env.built_packages == 'true' }}
         run: |
           # convert the list to an array
           IFS=' ' read -ra changed_packages_paths_arry <<< "$changed_packages_paths"
@@ -590,8 +591,7 @@ jobs:
           done
 
       - name: Update rosdep yaml file
-        ## checks if changed packages_paths & built packages, on release branch also checks for full build tag
-        if: ${{ env.built_packages == 'true' && !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') || contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') && env.FULL_BUILD_TAG == 'true' && env.built_packages == 'true' }}
+        if: ${{ env.built_packages == 'true' }}
         run: |
           export HOME=/home/ubuntu
           git clone https://"Amir-civ:$GH_TOKEN"@github.com/Civdrone/scripts.git
@@ -668,7 +668,6 @@ jobs:
           curl -X POST -H "Authorization: token $GH_TOKEN" -H "Accept: application/vnd.github.v3+json" https://api.github.com/repos/$REPO_OWNER/$REPO/statuses/${COMMIT_ID} -d '{"state": "failure", "context": "continuous-integration/build-${BUILD_NUMBER"}'
 
       - name: Discard Local Changes
-        ## checks if changed packages, on release branch also checks for full build tag
         if: ${{ always() }}
         run: |
           cd $GITHUB_WORKSPACE
@@ -695,7 +694,7 @@ jobs:
 
   depends_on_trigger:
     needs: [amd_build, arm_build, initiate-workflow]
-    if: ${{ github.event_name == 'workflow_dispatch' && github.ref_name == 'v2.3' && needs.amd_build.result == 'success' && needs.arm_build.result == 'success' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && (github.ref_name == 'develop' || needs.initiate-workflow.outputs.RELEASE_BRANCH == 'true') && needs.amd_build.result == 'success' && needs.arm_build.result == 'success' }}
     runs-on: ${{ needs.initiate-workflow.outputs.label-amd }} # run the job on the newly created runner
     timeout-minutes: 20
     outputs:
@@ -827,7 +826,6 @@ jobs:
         fi
 
     - name: Discard Local Changes
-      ## checks if changed packages, on release branch also checks for full build tag
       if: ${{ always() }}
       run: |
         cd $GITHUB_WORKSPACE
