@@ -732,7 +732,7 @@ jobs:
         
         # Read the CSV file and clone repositories
         while IFS=, read -r repo || [ -n "$repo" ]; do
-            git clone https://"$Amir-civ":"${GH_TOKEN}"@github.com/Civdrone/"$repo".git
+            git clone -b $BRANCH https://"$Amir-civ":"${GH_TOKEN}"@github.com/Civdrone/"$repo".git
         done < ./repo.csv
         
         # Source ROS 2 Galactic installation
