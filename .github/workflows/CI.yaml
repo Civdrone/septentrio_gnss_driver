@@ -98,14 +98,19 @@ jobs:
         if: env.RELEASE_BRANCH == 'true'
         run: |
           # Run the command to check if the full build tag exists in civros-release
-          PROMOTED_TAG=$(git ls-remote --refs --tags https://github.com/Civdrone/civros-release.git "${BRANCH}-promoted" | awk '{print $2}' | sed 's/refs\/tags\///')
-          if [ -z "$PROMOTED_TAG" ]; then
-            echo "PROMOTED_TAG variable is empty"
-            exit 1
-          else
-            echo "TAG variable is not empty, value is: $PROMOTED_TAG"
+          git clone https://"Amir-civ:$GH_TOKEN"@github.com/Civdrone/civros-release.git
+          cd civros-release
+
+          # Check if the tag exists
+          if git rev-parse "$BRANCH-promoted" >/dev/null 2>&1; then
+            # The tag exists
+            PROMOTED_TAG=$(git rev-parse "$BRANCH-promoted")
             echo "PROMOTED_TAG=true" >> "$GITHUB_OUTPUT"
             echo "PROMOTED_TAG=true" >> "$GITHUB_ENV"
+          else
+            # The tag does not exist
+            echo "PROMOTED_TAG variable is empty"
+            exit 1
           fi
 
       - name: Get unique changed packages
