@@ -76,6 +76,7 @@ jobs:
       amd-instance-id: ${{ steps.start-amd-runner.outputs.ec2-instance-id || steps.manual-input.outputs.ec2-instance-id-amd }}
       promote-tag: ${{ steps.promote-tag.outputs.PROMOTED_TAG }}
       changed_packages_paths: ${{ steps.manual-input.outputs.changed_packages_paths || steps.changed-packages.outputs.changed_packages_paths }}
+      packages_names: ${{ steps.manual-input.outputs.packages_names || steps.changed-packages.outputs.packages_names }}
     steps:
       - name: checkout
         if: ${{ !contains(env.BRANCH, '^v[0-9]+\\.[0-9]+$') }}
@@ -141,6 +142,10 @@ jobs:
           echo "changed_packages_paths=${unique_packages_paths[*]}" >> "$GITHUB_OUTPUT"
           echo "changed_packages_paths=${unique_packages_paths[*]}" >> "$GITHUB_ENV"
 
+          # Extract base names from paths and join them with a space
+          packages_names=$(echo "${unique_packages_paths[*]}" | xargs -n 1 basename | xargs)
+          echo "packages_names=${packages_names}" >> "$GITHUB_OUTPUT"
+
       - name: Get workflow manual input
         id: manual-input
         ## checks if trigger on dispatch event, on release branch also checks for full build tag
@@ -176,6 +181,10 @@ jobs:
           echo "label-amd=${{ github.event.inputs.runner_amd_lable }}" >> "$GITHUB_OUTPUT"
           echo "ec2-instance-id-arm=${{ github.event.inputs.runner_arm_id }}" >> "$GITHUB_OUTPUT"
           echo "ec2-instance-id-amd=${{ github.event.inputs.runner_amd_id }}" >> "$GITHUB_OUTPUT"
+
+          # Extract base names from paths and join them with a space
+          packages_names=$(echo "$converted_paths" | xargs -n 1 basename | xargs)
+          echo "packages_names=${packages_names}" >> "$GITHUB_OUTPUT"
 
       - name: Configure AWS credentials
         if: ${{ github.event_name != 'workflow_dispatch' && env.changed_packages_paths != '' || (github.event_name == 'workflow_dispatch' && (steps.manual-input.outputs.label-arm == '' || steps.manual-input.outputs.label-amd == '')) }}
@@ -389,7 +398,12 @@ jobs:
       - name: Update commit status and cencel all workflows with the same branch on failure
         if: ${{ failure() }}
         run: |
-          sudo curl -u "Amir-civ:$GH_TOKEN" -L https://raw.githubusercontent.com/$REPO_OWNER/civros-release/main/repo.csv -o ./repo.csv
+          if [[ $BRANCH =~ ^v[0-9]+\.[0-9]+$ ]]; then
+            sudo curl -u "Amir-civ:$GH_TOKEN" -L https://raw.githubusercontent.com/$REPO_OWNER/civros-release/$BRANCH/repo.csv -o ./repo.csv
+          else
+            sudo curl -u "Amir-civ:$GH_TOKEN" -L https://raw.githubusercontent.com/$REPO_OWNER/civros-release/develop/repo.csv -o ./repo.csv
+          fi
+          
           if [ $? -eq 0 ]; then
               echo "repo.csv file downloaded successfully!"
           else
@@ -433,9 +447,10 @@ jobs:
             GitHub build result: ${{ job.status }}
             Workflow: ${{ github.job }}
             Repository: ${{ github.event.repository.name }}
+            Packages: ${{needs.initiate-workflow.outputs.packages_names}}
             Branch: ${{ github.ref_name }}
             Build Number: ${{ github.run_number }}
-            Triggered by: ${{ github.actor }}
+            Triggered by: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.commiter || github.actor}}
             Workflow URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
@@ -621,7 +636,11 @@ jobs:
       - name: Update commit status and cencel all workflows with the same branch on failure
         if: ${{ failure() }}
         run: |
-          sudo curl -u "Amir-civ:$GH_TOKEN" -L https://raw.githubusercontent.com/$REPO_OWNER/civros-release/main/repo.csv -o ./repo.csv
+          if [[ $BRANCH =~ ^v[0-9]+\.[0-9]+$ ]]; then
+            sudo curl -u "Amir-civ:$GH_TOKEN" -L https://raw.githubusercontent.com/$REPO_OWNER/civros-release/$BRANCH/repo.csv -o ./repo.csv
+          else
+            sudo curl -u "Amir-civ:$GH_TOKEN" -L https://raw.githubusercontent.com/$REPO_OWNER/civros-release/develop/repo.csv -o ./repo.csv
+          fi
           if [ $? -eq 0 ]; then
               echo "repo.csv file downloaded successfully!"
           else
@@ -666,9 +685,10 @@ jobs:
             GitHub build result: ${{ job.status }}
             Workflow: ${{ github.job }}
             Repository: ${{ github.event.repository.name }}
+            Packages: ${{needs.initiate-workflow.outputs.packages_names}}
             Branch: ${{ github.ref_name }}
             Build Number: ${{ github.run_number }}
-            Triggered by: ${{ github.actor }}
+            Triggered by: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.commiter || github.actor}}
             Workflow URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
@@ -699,7 +719,12 @@ jobs:
         echo "Changed package paths: $changed_packages_paths"
         mkdir ros_ws && cd ros_ws
         # Download repo.csv
-        sudo curl -u "Amir-civ:$GH_TOKEN" -L https://raw.githubusercontent.com/$REPO_OWNER/civros-release/main/repo.csv -o ./repo.csv
+        if [[ $BRANCH =~ ^v[0-9]+\.[0-9]+$ ]]; then
+          sudo curl -u "Amir-civ:$GH_TOKEN" -L https://raw.githubusercontent.com/$REPO_OWNER/civros-release/$BRANCH/repo.csv -o ./repo.csv
+        else
+          sudo curl -u "Amir-civ:$GH_TOKEN" -L https://raw.githubusercontent.com/$REPO_OWNER/civros-release/develop/repo.csv -o ./repo.csv
+        fi
+
         if [ $? -eq 0 ]; then
             echo "repo.csv file downloaded successfully!"
         else
@@ -747,6 +772,7 @@ jobs:
         next_package_path=$(echo $package_path_in_ros_ws | cut -d'/' -f3-)
 
         echo "recursion_ends=$recursion_ends" >> "$GITHUB_OUTPUT"
+
         if [[ $recursion_ends == "false" ]]; then
 
           if [[ -z "$next_package_path" ]]; then
@@ -769,6 +795,10 @@ jobs:
           prev_repo=${{ env.REPO }}
           prev_build=${{ env.BUILD_NUMBER }}
           commiter=${{ github.event_name == 'workflow_dispatch' && github.event.inputs.commiter || github.actor}}
+
+          # echo "source_repo=$source_repo" >> $GITHUB_ENV
+          # echo "source_build=$source_build" >> $GITHUB_ENV
+          # echo "commiter=$commiter" >> $GITHUB_ENV
 
           response=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
           https://api.github.com/repos/$REPO_OWNER/$next_repo/actions/workflows/CI.yaml/dispatches \
@@ -805,7 +835,7 @@ jobs:
         git clean -f
 
     - name: Post to a Slack channel
-      if: ${{ failure() || cancelled() }}
+      if: ${{ failure() || cancelled() || steps.trigger-depends-pacakge.outputs.recursion_ends == 'true' }}
       id: slack
       uses: slackapi/slack-github-action@v1.23.0
       with:
@@ -820,7 +850,10 @@ jobs:
           Repository: ${{ github.event.repository.name }}
           Branch: ${{ github.ref_name }}
           Build Number: ${{ github.run_number }}
-          Triggered by: ${{ github.actor }}
+          Triggered by: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.commiter || github.actor}}
+          Full Build Status: ${{  steps.trigger-depends-pacakge.outputs.recursion_ends == 'true' && 'success' || 'faild' }}
+          Source Repository: ${{  github.event_name == 'workflow_dispatch' && github.event.inputs.source_repo || env.REPO }}
+          Source Build Number: ${{  github.event_name == 'workflow_dispatch' && github.event.inputs.source_build || env.BUILD_NUMBER }}
           Workflow URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
       env:
         SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
