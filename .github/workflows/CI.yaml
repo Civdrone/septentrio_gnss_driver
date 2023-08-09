@@ -732,7 +732,7 @@ jobs:
         
         # Read the CSV file and clone repositories
         while IFS=, read -r repo || [ -n "$repo" ]; do
-            git clone -b $BRANCH https://"$Amir-civ":"${GH_TOKEN}"@github.com/Civdrone/"$repo".git
+            git clone https://"$Amir-civ":"${GH_TOKEN}"@github.com/Civdrone/"$repo".git
         done < ./repo.csv
         
         # Source ROS 2 Galactic installation
@@ -823,6 +823,23 @@ jobs:
             exit 1
           fi
           curl -X POST -u amir_b:$ARTIFACTORY_TOKEN "https://civrobotics.jfrog.io/artifactory/api/deb/reindex/civros-unstable?writeProps=0"
+        fi
+
+    - name: Trigger meta package build
+      if: ${{ steps.trigger-depends-pacakge.outputs.recursion_ends == 'true' }}
+      run: |
+        response=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
+        https://api.github.com/repos/$REPO_OWNER/civros-release/actions/workflows/dev_meta_packages.yaml/dispatches \
+        -H "Accept: application/vnd.github.v3+json" \
+        -H "Authorization: token $GH_TOKEN" \
+        --data '{
+          "ref": "'$BRANCH'"
+        }')       
+        if [ "$response" -ne 204 ]; then
+          echo "Failed to trigger the workflow. HTTP status was: $response"
+          exit 1
+        fi
+        curl -X POST -u amir_b:$ARTIFACTORY_TOKEN "https://civrobotics.jfrog.io/artifactory/api/deb/reindex/civros-unstable?writeProps=0"
         fi
 
     - name: Discard Local Changes
