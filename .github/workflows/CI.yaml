@@ -840,7 +840,6 @@ jobs:
           exit 1
         fi
         curl -X POST -u amir_b:$ARTIFACTORY_TOKEN "https://civrobotics.jfrog.io/artifactory/api/deb/reindex/civros-unstable?writeProps=0"
-        fi
 
     - name: Discard Local Changes
       if: ${{ always() }}
