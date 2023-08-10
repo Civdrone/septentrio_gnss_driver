@@ -90,7 +90,7 @@ jobs:
           if [[ $BRANCH =~ ^v[0-9]+\.[0-9]+$ ]]; then
               echo "RELEASE_BRANCH=true" >> $GITHUB_OUTPUT
               echo "RELEASE_BRANCH=true" >> "$GITHUB_ENV"
-              echo "on release branch $BRANCH "
+              echo "on release branch $BRANCH"
           fi
           
       - name: Check release promoteted tag
@@ -732,7 +732,7 @@ jobs:
         
         # Read the CSV file and clone repositories
         while IFS=, read -r repo || [ -n "$repo" ]; do
-            git clone https://"$Amir-civ":"${GH_TOKEN}"@github.com/Civdrone/"$repo".git
+          git clone -b $BRANCH https://"$Amir-civ":"${GH_TOKEN}"@github.com/Civdrone/"$repo".git
         done < ./repo.csv
         
         # Source ROS 2 Galactic installation
