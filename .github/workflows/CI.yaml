@@ -64,6 +64,7 @@ env:
   ARTIFACTORY_URL: civrobotics.jfrog.io/artifactory/civros-unstable
   GH_TOKEN: ${{ secrets.gh_token }}
   AWS_REGION: us-east-1
+  ROS_DIST: galactic
 
 jobs:
   initiate-workflow:
@@ -78,6 +79,7 @@ jobs:
       changed_packages_paths: ${{ steps.manual-input.outputs.changed_packages_paths || steps.changed-packages.outputs.changed_packages_paths }}
       packages_names: ${{ steps.manual-input.outputs.packages_names || steps.changed-packages.outputs.packages_names }}
       release_branch: ${{ steps.check-release.outputs.RELEASE_BRANCH }}
+      runners_matrix: ${{ steps.runners-matrix.outputs.runners_matrix }}
     steps:
       - name: checkout
         uses: actions/checkout@v3
@@ -232,12 +234,21 @@ jobs:
           subnet-id: subnet-0ea80778fd45e76a0
           security-group-id: sg-095940a96979f1b1d
 
-  arm_build:
-    needs: initiate-workflow # required to start the main job when the runner is ready
+      - name: Set Runners Matrix
+        id: runners-matrix
+        run: |
+          RUNNERS_MATRIX="{\"include\":[{\"name\":\"arm-build\",\"label\":\"${{ steps.start-arm-runner.outputs.label || steps.manual-input.outputs.label-arm }}\"},{\"name\":\"amd-build\",\"label\":\"${{ steps.start-amd-runner.outputs.label || steps.manual-input.outputs.label-amd }}\"}]}"
+          echo "runners_matrix=${RUNNERS_MATRIX}" >> $GITHUB_OUTPUT
+  
+  build:
+    strategy:
+      matrix: ${{fromJson(needs.initiate-workflow.outputs.runners_matrix)}}    
+    name: ${{ matrix.name }}
+    needs: initiate-workflow 
     if: needs.initiate-workflow.outputs.changed_packages_paths != ''
-    runs-on: ${{ needs.initiate-workflow.outputs.label-arm }} # run the job on the newly created runner
+    runs-on: ${{ matrix.label }}
     timeout-minutes: 20
-    env:  # Set the environment variables at the job level
+    env:
       promote-tag: ${{needs.initiate-workflow.outputs.promote-tag}}
       changed_packages_paths: ${{needs.initiate-workflow.outputs.changed_packages_paths}}
     steps:
@@ -251,21 +262,45 @@ jobs:
         run: |
           sudo ln -s /usr/include/eigen3/Eigen /usr/include/Eigen
 
+      - name: organizing build order for packages
+        run: |
+          source /opt/ros/$ROS_DIST/setup.bash
+          
+          # Run colcon list --topological-order command and extract the first fraction from each line
+          build_order=$(colcon list --topological-order | awk '{print $1}')
+
+          #convert strings into arrays
+          build_order_arry=($build_order)
+          packages_paths_arry=($changed_packages_paths)
+
+          # Create an array to hold the sorted list
+          declare -a sorted_packages_paths
+
+          for package in "${!build_order_arry[@]}"; do
+            for package_path in "${packages_paths_arry[@]}"; do
+                if [[ ${build_order_arry[$package]} = $(basename "$package_path") ]]; then
+                sorted_packages_paths+=("$package_path")
+                fi
+            done
+          done
+          echo "soreted packages: ${sorted_packages_paths[*]}"
+          echo "sorted_packages_paths=${sorted_packages_paths[*]}" >> $GITHUB_ENV
+
       - name: Update artifactory server
         run: |
           # Get default branch
-          default_branch=$(curl -H "Authorization: token $GH_TOKEN" -s https://api.github.com/repos/$REPO_OWNER/$REPO | jq -r '.default_branch')
+          # default_branch=$(curl -H "Authorization: token $GH_TOKEN" -s https://api.github.com/repos/$REPO_OWNER/$REPO | jq -r '.default_branch')
 
-          readarray -t branches < <(git show-branch -a | grep '\*' | awk 'match($0, /\[[^]]+\]/) { branch = substr($0, RSTART+1, RLENGTH-2); gsub(/origin\//, "", branch); gsub(/[~^].*/, "", branch); if (!seen[branch]++) print branch; if (branch == "develop" || branch == "main" || branch == "master") exit }' | uniq)
+          # readarray -t branches < <(git show-branch -a | grep '\*' | awk 'match($0, /\[[^]]+\]/) { branch = substr($0, RSTART+1, RLENGTH-2); gsub(/origin\//, "", branch); gsub(/[~^].*/, "", branch); if (!seen[branch]++) print branch; if (branch == "develop" || branch == "main" || branch == "master") exit }' | uniq)
 
-          # Iterate over the branches array until a match is found, then trim the array
-          for ((idx=0; idx<${#branches[@]}; idx++)); do
-              if [[ "${branches[idx]}" =~ ^v[0-9]+\.[0-9]+$ ]] || [[ "${branches[idx]}" == "$default_branch" ]]; then
-                  branches=("${branches[@]:0:idx+1}")
-                  break
-              fi
-          done
-
+          # # Iterate over the branches array until a match is found, then trim the array
+          # for ((idx=0; idx<${#branches[@]}; idx++)); do
+          #     if [[ "${branches[idx]}" =~ ^v[0-9]+\.[0-9]+$ ]] || [[ "${branches[idx]}" == "$default_branch" ]]; then
+          #         branches=("${branches[@]:0:idx+1}")
+          #         break
+          #     fi
+          # done
+          branches=("ci_build_order" "v2.3")
           priority=1001
           
           for branch in "${branches[@]}"; do
@@ -276,7 +311,7 @@ jobs:
           
           EOF"
               priority=$((priority - 1))
-              sudo sh -c "echo 'deb https://amir_b:$ARTIFACTORY_TOKEN@$ARTIFACTORY_URL galactic $branch' >> /etc/apt/sources.list.d/civ.list"
+              sudo sh -c "echo 'deb https://amir_b:$ARTIFACTORY_TOKEN@$ARTIFACTORY_URL $ROS_DIST $branch' >> /etc/apt/sources.list.d/civ.list"
           done
           
           sudo cat /etc/apt/preferences.d/10-civ.pref
@@ -299,7 +334,7 @@ jobs:
         id: build_deb_package
         run: |
           built_packages=true
-          IFS=' ' read -ra packages_paths <<< "$changed_packages_paths"
+          IFS=' ' read -ra packages_paths <<< "$sorted_packages_paths"
           for package_path in "${packages_paths[@]}"; do
             pwd
             ls
@@ -307,7 +342,7 @@ jobs:
             pwd
             ls
             sed -E -i "s/<version>([0-9]+)\.([0-9]+)\.([0-9]+)<\/version>/<version>\1.\2.${BUILD_NUMBER}<\/version>/" package.xml
-            source /opt/ros/galactic/setup.bash
+            source /opt/ros/$ROS_DIST/setup.bash
             rosdep update --include-eol-distros
             bloom-generate rosdebian
             sudo apt update
@@ -351,7 +386,7 @@ jobs:
                 
                 dirname=$(cut -d '_' -f1 <<< "$name")
                 #push them to Artifactory
-                curl --fail -uamir_b:$ARTIFACTORY_TOKEN -XPUT "https://$ARTIFACTORY_URL/galactic/${dirname}/${BRANCH}/${name};deb.distribution=galactic;deb.component=$BRANCH;deb.architecture=$(dpkg --print-architecture);deb.build_number=$BUILD_NUMBER" -T $pack -o $dirname.json
+                curl --fail -uamir_b:$ARTIFACTORY_TOKEN -XPUT "https://$ARTIFACTORY_URL/$ROS_DIST/${dirname}/${BRANCH}/${name};deb.distribution=$ROS_DIST;deb.component=$BRANCH;deb.architecture=$(dpkg --print-architecture);deb.build_number=$BUILD_NUMBER" -T $pack -o $dirname.json
                 cat $dirname.json
             done
 
@@ -378,7 +413,7 @@ jobs:
             package_exists=$(yq ".$package_name" ./docker_container/local.yaml)
             if [[ $package_exists = null ]]; then
               # Define the apt package
-              apt_package=$(echo "$package_name" | sed 's/_/-/g; s/^/ros-galactic-/')
+              apt_package=$(echo "$package_name" | sed 's/_/-/g; s/^/ros-$ROS_DIST-/')
               
               # Create the YAML content for the new package
               new_yaml_content="${package_name}:\n  ubuntu:\n    focal: [${apt_package}]"
@@ -462,239 +497,9 @@ jobs:
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
 
-  amd_build:
-    needs: initiate-workflow # required to start the main job when the runner is ready
-    if: needs.initiate-workflow.outputs.changed_packages_paths != ''
-    runs-on: ${{ needs.initiate-workflow.outputs.label-amd }} # run the job on the newly created runner
-    timeout-minutes: 20
-    env:  # Set the environment variables at the job level
-      promote-tag: ${{needs.initiate-workflow.outputs.promote-tag}}
-      changed_packages_paths: ${{needs.initiate-workflow.outputs.changed_packages_paths}}
-    
-    steps:
-      - name: checkout
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
-
-      - name: additional env installations
-        if: ${{ github.event_name != 'workflow_dispatch' }}
-        run: |
-          sudo ln -s /usr/include/eigen3/Eigen /usr/include/Eigen
-
-      - name: Update artifactory server
-        run: |
-          # Get default branch
-          default_branch=$(curl -H "Authorization: token $GH_TOKEN" -s https://api.github.com/repos/$REPO_OWNER/$REPO | jq -r '.default_branch')
-
-          readarray -t branches < <(git show-branch -a | grep '\*' | awk 'match($0, /\[[^]]+\]/) { branch = substr($0, RSTART+1, RLENGTH-2); gsub(/origin\//, "", branch); gsub(/[~^].*/, "", branch); if (!seen[branch]++) print branch; if (branch == "develop" || branch == "main" || branch == "master") exit }' | uniq)
-
-          # Iterate over the branches array until a match is found, then trim the array
-          for ((idx=0; idx<${#branches[@]}; idx++)); do
-              if [[ "${branches[idx]}" =~ ^v[0-9]+\.[0-9]+$ ]] || [[ "${branches[idx]}" == "$default_branch" ]]; then
-                  branches=("${branches[@]:0:idx+1}")
-                  break
-              fi
-          done
-
-          priority=1001
-          
-          for branch in "${branches[@]}"; do
-              sudo bash -c "cat >> /etc/apt/preferences.d/10-civ.pref << EOF
-          Package: *
-          Pin: release c='$branch'
-          Pin-Priority: $priority
-          
-          EOF"
-              priority=$((priority - 1))
-              sudo sh -c "echo 'deb https://amir_b:$ARTIFACTORY_TOKEN@$ARTIFACTORY_URL galactic $branch' >> /etc/apt/sources.list.d/civ.list"
-          done
-          
-          sudo cat /etc/apt/preferences.d/10-civ.pref
-          sudo cat /etc/apt/sources.list.d/civ.list
-          wget -O civrobotics.pub https://amir_b:$ARTIFACTORY_TOKEN@civrobotics.jfrog.io/artifactory/api/security/keypair/debianKeys/public
-          gpg --import civrobotics.pub
-          gpg --list-keys
-          sudo apt-key add civrobotics.pub
-          sudo apt update
-          # downloading rosdep mapping file
-          sudo curl -u "Amir-civ:$GH_TOKEN" -L $ROSDEP_MAP_FILE -o /etc/ros/rosdep/sources.list.d/local.yaml
-          if [ $? -eq 0 ]; then
-            echo "YAML file downloaded successfully!"
-          else
-            echo "Failed to download YAML file."
-          fi
-          sudo sh -c 'echo "yaml file:///etc/ros/rosdep/sources.list.d/local.yaml" >> /etc/ros/rosdep/sources.list.d/20-default.list'
-
-      - name: Build deb package
-        id: build_deb_package
-        run: |
-          built_packages=true
-          IFS=' ' read -ra packages_paths <<< "$changed_packages_paths"
-          for package_path in "${packages_paths[@]}"; do
-            pwd
-            ls
-            cd "$package_path"
-            pwd
-            ls
-            sed -E -i "s/<version>([0-9]+)\.([0-9]+)\.([0-9]+)<\/version>/<version>\1.\2.${BUILD_NUMBER}<\/version>/" package.xml
-            source /opt/ros/galactic/setup.bash
-            rosdep update --include-eol-distros
-            bloom-generate rosdebian
-            sudo apt update
-            sudo apt build-dep . -y
-            dpkg-buildpackage -b -rfakeroot -us -uc
-            cd ..
-            # ls | grep .deb
-            if ! ls *.deb 1>/dev/null 2>&1; then
-              built_packages=false
-            fi
-          done
-          echo "built_packages=$built_packages" >> $GITHUB_ENV
-
-      - name: Push to artifactory server
-        if: ${{ env.built_packages == 'true' }}
-        run: |
-          # convert the list to an array
-          IFS=' ' read -ra changed_packages_paths_arry <<< "$changed_packages_paths"
-
-          # use an associative array(bash dictionary) to handle duplicates
-          declare -A debian_packages_paths
-
-          # loop over each path, get the dirname and add it to the associative array(bash dictionary)
-          for i in "${changed_packages_paths_arry[@]}"; do
-            dirname=$(dirname "$i")
-            debian_packages_paths["$dirname"]=1
-          done
-
-          # now debian_packages_paths is a list with unique directories, so we can iterate over it
-          for dir in "${!debian_packages_paths[@]}"; do
-            echo "Processing directory $dir"
-            cd "$dir"
-            
-            # your script comes here
-            PACKS=($(ls ${1:-.}/*.deb))
-            echo "$PACKS"
-            for pack in "${PACKS[@]}"
-            do
-                name=$(basename "$pack")
-                printf "\nPublishing %s\n" "$name"
-                
-                dirname=$(cut -d '_' -f1 <<< "$name")
-                #push them to Artifactory
-                curl --fail -uamir_b:$ARTIFACTORY_TOKEN -XPUT "https://$ARTIFACTORY_URL/galactic/${dirname}/${BRANCH}/${name};deb.distribution=galactic;deb.component=$BRANCH;deb.architecture=$(dpkg --print-architecture);deb.build_number=$BUILD_NUMBER" -T $pack -o $dirname.json
-                cat $dirname.json
-            done
-
-            # get back to the initial directory, so that relative paths work in the next iteration
-            cd -
-          done
-
-      - name: Update rosdep yaml file
-        if: ${{ env.built_packages == 'true' }}
-        run: |
-          export HOME=/home/ubuntu
-          git clone https://"Amir-civ:$GH_TOKEN"@github.com/Civdrone/scripts.git
-          cd scripts
-          git checkout ci-github-actions
-          IFS=' ' read -ra packages_paths <<< "$changed_packages_paths"
-          for package_path in "${packages_paths[@]}"; do
-            # Check if package path is root
-            if [[ $package_path == "." ]]; then
-              package_name=$REPO
-            else
-              package_name=$(basename "$package_path")
-            fi
-      
-            package_exists=$(yq ".$package_name" ./docker_container/local.yaml)
-            if [[ $package_exists = null ]]; then
-              # Define the apt package
-              apt_package=$(echo "$package_name" | sed 's/_/-/g; s/^/ros-galactic-/')
-              
-              # Create the YAML content for the new package
-              new_yaml_content="${package_name}:\n  ubuntu:\n    focal: [${apt_package}]"
-              
-              # Read the existing YAML content from the file
-              existing_yaml_content=$(sudo cat ./docker_container/local.yaml)
-              
-              # Append the new package information to the existing YAML content
-              yaml_content="${existing_yaml_content}\n${new_yaml_content}"
-              
-              # Write the modified YAML content to the file
-              echo -e "${yaml_content}" > ./docker_container/local.yaml
-              # Push changes to remote
-              git config --global user.email "amir@civrobotics.com"
-              git config --global user.name "amir-ci"
-              git add .
-              git commit -m "changed rosdep yaml file from ci, owner/repo: ${REPO}, branch: ${BRANCH}  build number: ${BUILD_NUMBER}."
-              git push origin ci-github-actions
-            else
-              echo "$package_name exists"
-            fi
-          done       
-
-      - name: Update commit status and cencel all workflows with the same branch on failure
-        if: ${{ failure() }}
-        run: |
-          if [[ $BRANCH =~ ^v[0-9]+\.[0-9]+$ ]]; then
-            sudo curl -u "Amir-civ:$GH_TOKEN" -L https://raw.githubusercontent.com/$REPO_OWNER/civros-release/$BRANCH/repo.csv -o ./repo.csv
-          else
-            sudo curl -u "Amir-civ:$GH_TOKEN" -L https://raw.githubusercontent.com/$REPO_OWNER/civros-release/develop/repo.csv -o ./repo.csv
-          fi
-          if [ $? -eq 0 ]; then
-              echo "repo.csv file downloaded successfully!"
-          else
-              echo "Failed to download repo.csv file."
-          fi
-
-          # Read the CSV file and cencel repositories
-          while IFS=, read -r repo || [ -n "$repo" ]; do
-          # Get the most recent workflow run ID for the specified event and branch
-          run_id=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
-          "https://api.github.com/repos/$REPO_OWNER/$repo/actions/runs?branch=$BRANCH" \
-          | jq -r '.workflow_runs[0].id')
-
-          # Cancel the workflow run if a run ID is found
-          if [ "$run_id" != "null" ]; then
-              curl -X POST -s -H "Authorization: Bearer $GH_TOKEN" \
-              "https://api.github.com/repos/$REPO_OWNER/$repo/actions/runs/$run_id/cancel"
-
-              echo "Workflow run $run_id has been canceled"
-          else
-              echo "No workflow run found for $repo"
-          fi
-          done < ./repo.csv
-          # update commit status
-          curl -X POST -H "Authorization: token $GH_TOKEN" -H "Accept: application/vnd.github.v3+json" https://api.github.com/repos/$REPO_OWNER/$REPO/statuses/${COMMIT_ID} -d '{"state": "failure", "context": "continuous-integration/build-${BUILD_NUMBER"}'
-
-      - name: Discard Local Changes
-        if: ${{ always() }}
-        run: |
-          cd $GITHUB_WORKSPACE
-          git checkout -- .
-          git clean -f
-          
-      - name: Post to a Slack channel
-        if: ${{ always() }}
-        id: slack
-        uses: slackapi/slack-github-action@v1.23.0
-        with:
-          channel-id: 'C051SPVTW2Z'
-          slack-message: |
-            GitHub build result: ${{ job.status }}
-            Workflow: ${{ github.job }}
-            Repository: ${{ github.event.repository.name }}
-            Packages: ${{needs.initiate-workflow.outputs.packages_names}}
-            Branch: ${{ github.ref_name }}
-            Build Number: ${{ github.run_number }}
-            Triggered by: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.commiter || github.actor}}
-            Workflow URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        env:
-          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
-
   depends_on_trigger:
-    needs: [amd_build, arm_build, initiate-workflow]
-    if: ${{ github.event_name == 'workflow_dispatch' && (github.ref_name == 'develop' || needs.initiate-workflow.outputs.RELEASE_BRANCH == 'true') && needs.amd_build.result == 'success' && needs.arm_build.result == 'success' }}
+    needs: [build, initiate-workflow]
+    if: ${{ github.event_name == 'workflow_dispatch' && (github.ref_name == 'develop' || needs.initiate-workflow.outputs.RELEASE_BRANCH == 'true') && needs.build.result == 'success' }}
     runs-on: ${{ needs.initiate-workflow.outputs.label-amd }} # run the job on the newly created runner
     timeout-minutes: 20
     outputs:
@@ -735,8 +540,7 @@ jobs:
           git clone -b $BRANCH https://"$Amir-civ":"${GH_TOKEN}"@github.com/Civdrone/"$repo".git
         done < ./repo.csv
         
-        # Source ROS 2 Galactic installation
-        source /opt/ros/galactic/setup.bash
+        source /opt/ros/$ROS_DIST/setup.bash
         
         # Run colcon list --topological-order command and extract the first fraction from each line
         build_order=$(colcon list --topological-order | awk '{print $1}')
@@ -873,7 +677,7 @@ jobs:
         SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
         
   stop-runners:
-    needs: [initiate-workflow, arm_build, amd_build, depends_on_trigger]
+    needs: [initiate-workflow, build, depends_on_trigger]
     runs-on: ubuntu-20.04
     timeout-minutes: 20
     if: |
