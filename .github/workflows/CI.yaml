@@ -289,18 +289,18 @@ jobs:
       - name: Update artifactory server
         run: |
           # Get default branch
-          # default_branch=$(curl -H "Authorization: token $GH_TOKEN" -s https://api.github.com/repos/$REPO_OWNER/$REPO | jq -r '.default_branch')
+          default_branch=$(curl -H "Authorization: token $GH_TOKEN" -s https://api.github.com/repos/$REPO_OWNER/$REPO | jq -r '.default_branch')
 
-          # readarray -t branches < <(git show-branch -a | grep '\*' | awk 'match($0, /\[[^]]+\]/) { branch = substr($0, RSTART+1, RLENGTH-2); gsub(/origin\//, "", branch); gsub(/[~^].*/, "", branch); if (!seen[branch]++) print branch; if (branch == "develop" || branch == "main" || branch == "master") exit }' | uniq)
+          readarray -t branches < <(git show-branch -a | grep '\*' | awk 'match($0, /\[[^]]+\]/) { branch = substr($0, RSTART+1, RLENGTH-2); gsub(/origin\//, "", branch); gsub(/[~^].*/, "", branch); if (!seen[branch]++) print branch; if (branch == "develop" || branch == "main" || branch == "master") exit }' | uniq)
 
-          # # Iterate over the branches array until a match is found, then trim the array
-          # for ((idx=0; idx<${#branches[@]}; idx++)); do
-          #     if [[ "${branches[idx]}" =~ ^v[0-9]+\.[0-9]+$ ]] || [[ "${branches[idx]}" == "$default_branch" ]]; then
-          #         branches=("${branches[@]:0:idx+1}")
-          #         break
-          #     fi
-          # done
-          branches=("ci_build_order" "v2.3")
+          # Iterate over the branches array until a match is found, then trim the array
+          for ((idx=0; idx<${#branches[@]}; idx++)); do
+              if [[ "${branches[idx]}" =~ ^v[0-9]+\.[0-9]+$ ]] || [[ "${branches[idx]}" == "$default_branch" ]]; then
+                  branches=("${branches[@]:0:idx+1}")
+                  break
+              fi
+          done
+
           priority=1001
           
           for branch in "${branches[@]}"; do
