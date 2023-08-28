@@ -386,7 +386,7 @@ jobs:
                 
                 dirname=$(cut -d '_' -f1 <<< "$name")
                 #push them to Artifactory
-                curl --fail -uamir_b:$ARTIFACTORY_TOKEN -XPUT "https://$ARTIFACTORY_URL/$ROS_DIST/${dirname}/${BRANCH}/${name};deb.distribution=$ROS_DIST;deb.component=$BRANCH;deb.architecture=$(dpkg --print-architecture);deb.build_number=$BUILD_NUMBER" -T $pack -o $dirname.json
+                curl --fail -uamir_b:$ARTIFACTORY_TOKEN -XPUT "https://$ARTIFACTORY_URL/$ROS_DIST/${dirname}/${BRANCH}/${name};deb.distribution=$ROS_DIST;deb.component=$BRANCH;deb.architecture=$(dpkg --print-architecture);deb.build_number=$BUILD_NUMBER;deb.commit_sha=$GITHUB_SHA" -T $pack -o $dirname.json
                 cat $dirname.json
             done
 
