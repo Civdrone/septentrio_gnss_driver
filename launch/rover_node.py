@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import os
 import launch
 from launch_ros.actions import Node
@@ -54,7 +56,7 @@ def generate_launch_description():
             # node_name='septentrio_gnss_driver',
             parameters=[LaunchConfiguration(name_arg_file_path)],
             output='screen',
-            prefix=['stdbuf -o L']  #set line-buffering in stdout
+            # prefix=['stdbuf -o L']  #set line-buffering in stdout
             )
 
     return launch.LaunchDescription([arg_file_name, arg_file_path, node, tf_imu, tf_gnss, tf_vsm, tf_aux1])
