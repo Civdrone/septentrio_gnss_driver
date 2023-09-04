@@ -288,32 +288,29 @@ jobs:
 
       - name: Update artifactory server
         run: |
-          # Get default branch
-          default_branch=$(curl -H "Authorization: token $GH_TOKEN" -s https://api.github.com/repos/$REPO_OWNER/$REPO | jq -r '.default_branch')
+          # Read the fallback branch from the text file
+          fallback_branch=$(cat fallback-manifest.txt)
+          declare -A branch_priority_map
+          branch_priority_map["$BRANCH"]=1001
 
-          readarray -t branches < <(git show-branch -a | grep '\*' | awk 'match($0, /\[[^]]+\]/) { branch = substr($0, RSTART+1, RLENGTH-2); gsub(/origin\//, "", branch); gsub(/[~^].*/, "", branch); if (!seen[branch]++) print branch; if (branch == "develop" || branch == "main" || branch == "master") exit }' | uniq)
+          # Check if the fallback branch is different from the current branch
+          if [[ "$BRANCH" != "$fallback_branch" ]]; then
+            branch_priority_map["$fallback_branch"]=1000
+          fi
 
-          # Iterate over the branches array until a match is found, then trim the array
-          for ((idx=0; idx<${#branches[@]}; idx++)); do
-              if [[ "${branches[idx]}" =~ ^v[0-9]+\.[0-9]+$ ]] || [[ "${branches[idx]}" == "$default_branch" ]]; then
-                  branches=("${branches[@]:0:idx+1}")
-                  break
-              fi
-          done
-
-          priority=1001
-          
-          for branch in "${branches[@]}"; do
-              sudo bash -c "cat >> /etc/apt/preferences.d/10-civ.pref << EOF
+          # Loop through branches and update files
+          for branch in "${!branch_priority_map[@]}"; do
+            priority="${branch_priority_map[$branch]}"
+            
+            sudo bash -c "cat >> /etc/apt/preferences.d/10-civ.pref << EOF
           Package: *
           Pin: release c='$branch'
           Pin-Priority: $priority
-          
           EOF"
-              priority=$((priority - 1))
-              sudo sh -c "echo 'deb https://amir_b:$ARTIFACTORY_TOKEN@$ARTIFACTORY_URL $ROS_DIST $branch' >> /etc/apt/sources.list.d/civ.list"
+
+            sudo sh -c "echo 'deb https://amir_b:$ARTIFACTORY_TOKEN@$ARTIFACTORY_URL $ROS_DIST $branch' >> /etc/apt/sources.list.d/civ.list"
           done
-          
+
           sudo cat /etc/apt/preferences.d/10-civ.pref
           sudo cat /etc/apt/sources.list.d/civ.list
           wget -O civrobotics.pub https://amir_b:$ARTIFACTORY_TOKEN@civrobotics.jfrog.io/artifactory/api/security/keypair/debianKeys/public
