@@ -321,19 +321,27 @@ jobs:
           for branch in "${!branch_priority_map[@]}"; do
             priority="${branch_priority_map[$branch]}"
 
+          pref_file="/etc/apt/preferences.d/10-civ.pref"
+          # Create the file if it doesn't exist
+          sudo touch "$pref_file"
+
             # Check if the branch preference already exists
-            if ! grep -q "Pin: release c='$branch'" /etc/apt/preferences.d/10-civ.pref; then
-              sudo bash -c "cat >> /etc/apt/preferences.d/10-civ.pref << EOF
+            if ! grep -q "Pin: release c='$branch'" "$pref_file"; then
+              sudo bash -c "cat >> $pref_file << EOF
           Package: *
           Pin: release c='$branch'
           Pin-Priority: $priority
           EOF"
             fi
 
+            source_file="/etc/apt/sources.list.d/civ.list"
+            # Create the file if it doesn't exist
+            sudo touch "$source_file
+
             # Check if the source list for the branch already exists
             source_entry="deb https://amir_b:$ARTIFACTORY_TOKEN@$ARTIFACTORY_URL $ROS_DIST $branch"
-            if ! grep -q "$source_entry" /etc/apt/sources.list.d/civ.list; then
-              sudo sh -c "echo '$source_entry' >> /etc/apt/sources.list.d/civ.list"
+            if ! grep -q "$source_entry" "$source_file"; then
+              sudo sh -c "echo '$source_entry' >> $source_file"
             fi
           done
           
