@@ -336,7 +336,7 @@ jobs:
 
             source_file="/etc/apt/sources.list.d/civ.list"
             # Create the file if it doesn't exist
-            sudo touch "$source_file
+            sudo touch "$source_file"
 
             # Check if the source list for the branch already exists
             source_entry="deb https://amir_b:$ARTIFACTORY_TOKEN@$ARTIFACTORY_URL $ROS_DIST $branch"
