@@ -344,6 +344,22 @@ jobs:
               sudo sh -c "echo '$source_entry' >> $source_file"
             fi
           done
+
+          sudo cat /etc/apt/preferences.d/10-civ.pref
+          sudo cat /etc/apt/sources.list.d/civ.list
+          wget -O civrobotics.pub https://amir_b:$ARTIFACTORY_TOKEN@civrobotics.jfrog.io/artifactory/api/security/keypair/debianKeys/public
+          gpg --import civrobotics.pub
+          gpg --list-keys
+          sudo apt-key add civrobotics.pub
+          sudo apt update
+          # downloading rosdep mapping file
+          sudo curl -u "Amir-civ:$GH_TOKEN" -L $ROSDEP_MAP_FILE -o /etc/ros/rosdep/sources.list.d/local.yaml
+          if [ $? -eq 0 ]; then
+            echo "YAML file downloaded successfully!"
+          else
+            echo "Failed to download YAML file."
+          fi
+          sudo sh -c 'echo "yaml file:///etc/ros/rosdep/sources.list.d/local.yaml" >> /etc/ros/rosdep/sources.list.d/20-default.list'
           
       - name: Build deb package
         id: build_deb_package
