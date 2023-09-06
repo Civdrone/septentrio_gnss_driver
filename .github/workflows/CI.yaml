@@ -120,29 +120,47 @@ jobs:
         ## checks if trigger on push event, on release branch also checks for full build tag
         if: ${{ github.event_name == 'push' }}
         run: |
-          mapfile -t CHANGED_FILES < <(git diff --name-only ${{ github.event.before }} ${{ github.event.after }})
           # Initialize unique_packages_paths
           unique_packages_paths=()
 
-          for path in "${CHANGED_FILES[@]}"; do
-            # if the path is a hidden directory or file, skip to the next iteration
-            if [[ $path == .* ]]; then
+          if [[ "${{ github.event.before }}" == "0000000000000000000000000000000000000000" ]]; then
+            # For the first commit on a new branch, compare it to the commit before
+            mapfile -t CHANGED_FILES < <(git diff --name-status ${{ github.event.after }}~1 ${{ github.event.after }})
+          else
+            # For most cases, compare the state before and after the push
+            mapfile -t CHANGED_FILES < <(git diff --name-status ${{ github.event.before }} ${{ github.event.after }})
+          fi
+
+          for line in "${CHANGED_FILES[@]}"; do
+            status="${line:0:1}"
+            path="${line:2}"
+            
+            # Skip deleted files
+            if [[ "$status" == "D" ]]; then
               continue
             fi
-            current_dirname="$(realpath "$path")"
-            has_package_xml=false
-            while [[ "$current_dirname" != "${GITHUB_WORKSPACE}" && $has_package_xml == false ]]; do
-              current_dirname=$(dirname "$current_dirname")
-              if [[ -f "${current_dirname}/package.xml" ]]; then
-                has_package_xml=true
+            
+            # Skip hidden directories or files
+            if [[ "$path" =~ ^\..* ]]; then
+              continue
+            fi
+            
+            # Check if file or directory exists
+            if [[ -e "$path" ]]; then
+              current_dirname="$(realpath "$path")"
+              has_package_xml=false
+              while [[ "$current_dirname" != "${GITHUB_WORKSPACE}" && $has_package_xml == false ]]; do
+                current_dirname=$(dirname "$current_dirname")
+                if [[ -f "${current_dirname}/package.xml" ]]; then
+                  has_package_xml=true
+                fi
+              done
+            
+              # Add if package.xml was found
+              if [[ $has_package_xml == true ]]; then
+                current_dirname="${current_dirname/\/home\/runner\/work/\/actions-runner\/_work}"
+                unique_packages_paths+=("$current_dirname")
               fi
-            done
-
-            # Add if package.xml was found
-            if [[ $has_package_xml == true ]]; then
-              # change working directory of hosted runner to self hosted runner
-              current_dirname="${current_dirname/\/home\/runner\/work/\/actions-runner\/_work}"
-              unique_packages_paths+=("$current_dirname")
             fi
           done
 
@@ -154,11 +172,12 @@ jobs:
           # Output the list of unique packages paths
           echo "Changed packages: ${unique_packages_paths[@]}"
 
-          # Set the `changed_packages_paths` environment variable with the list of unique packages paths
+          # Always set the `changed_packages_paths` environment variable
           echo "changed_packages_paths=${unique_packages_paths[*]}" >> "$GITHUB_OUTPUT"
           echo "changed_packages_paths=${unique_packages_paths[*]}" >> "$GITHUB_ENV"
 
           # Extract base names from paths and join them with a space
+          # Even if unique_packages_paths is empty, packages_names will be set to an empty string
           packages_names=$(echo "${unique_packages_paths[*]}" | xargs -n 1 basename | xargs)
           echo "packages_names=${packages_names}" >> "$GITHUB_OUTPUT"
 
