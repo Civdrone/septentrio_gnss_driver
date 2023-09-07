@@ -377,40 +377,29 @@ jobs:
             rosdep update --include-eol-distros
             bloom-generate rosdebian
             sudo apt update
-            # Initialize counter to zero
+            sudo apt build-dep . -y
             count=0
 
             # Loop to check the lock files and active processes
             while [ -e "/var/lib/dpkg/lock-frontend" ] || [ -e "/var/lib/dpkg/lock" ]; do
-                count=$((count + 1))
-                
-                # If the counter reaches 30 (which equates to 30 seconds)
-                if [ $count -ge 30 ]; then  
-                    
-                    # Check if any process is actively using the lock files
-                    if ! sudo fuser /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock >/dev/null 2>&1; then
-                        # Check if there are any running 'apt' or 'dpkg' processes in the background
-                        if ! pgrep -f 'apt|dpkg' >/dev/null 2>&1; then
-                            echo "No active or background package management processes found. Force removing lock files..."
-                            sudo rm -f /var/lib/dpkg/lock-frontend
-                            sudo rm -f /var/lib/dpkg/lock
-                            break
-                        else
-                            echo "Background package management processes are still running. Exiting to avoid corruption."
-                            ps -p $(pgrep -f "apt|dpkg") | awk 'NR=2 { print $1 , $4 }'
-                            exit 1
-                        fi
-                    else
-                        echo "Active package management processes found. Will not remove lock files."
-                        break
-                    fi
+              # Check if any process is actively using the lock files
+              if sudo fuser /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock >/dev/null 2>&1 || pgrep -f 'apt|dpkg' >/dev/null 2>&1; then
+                echo "Active package management processes found. Will not remove lock files(${count}/30 sec's):"
+                fuser -v /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock
+                if [ $count -ge 30 ]; then
+                  echo "Package management processes is active for 30 sec, breaking the loop!"
+                  break
                 fi
-                
-                # Wait for 1 seconds before the next iteration
-                echo "Waiting for other package managers to finish... (${count}/30 sec's)"
+                count=$((count + 1))
                 sleep 1
+              else
+                echo "No active or background package management processes found. Force removing lock files..."
+                sudo rm -f /var/lib/dpkg/lock-frontend
+                sudo rm -f /var/lib/dpkg/lock
+                break
+              fi
             done
-            sudo apt build-dep . -y
+
             dpkg-buildpackage -b -rfakeroot -us -uc
             cd ..
             # ls | grep .deb
