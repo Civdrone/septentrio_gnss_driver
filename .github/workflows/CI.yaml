@@ -236,7 +236,7 @@ jobs:
         with:
           mode: start
           github-token: ${{ secrets.gh_token }}
-          ec2-image-id: ami-0a90de96772472c99
+          ec2-image-id: ami-0709e48fc2257176b
           ec2-instance-type: c5.2xlarge
           subnet-id: subnet-0ea80778fd45e76a0
           security-group-id: sg-095940a96979f1b1d
@@ -248,7 +248,7 @@ jobs:
         with:
           mode: start
           github-token: ${{ secrets.gh_token }}
-          ec2-image-id: ami-0111efac66ad5af90
+          ec2-image-id: ami-05defeebd3c93ab8e
           ec2-instance-type: c6g.2xlarge
           subnet-id: subnet-0ea80778fd45e76a0
           security-group-id: sg-095940a96979f1b1d
