@@ -364,7 +364,33 @@ jobs:
       - name: Build deb package
         id: build_deb_package
         run: |
+          pip3 install witmotion
           built_packages=true
+
+          # Define the lock file handling function
+          handle_lock_files() {
+            echo "About to enter lock file handling loop..."
+            count=0
+            while [ -e "/var/lib/dpkg/lock-frontend" ] || [ -e "/var/lib/dpkg/lock" ]; do
+              echo "Inside the lock file handling loop..."
+              if sudo fuser /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock >/dev/null 2>&1 || pgrep -f 'apt|dpkg' >/dev/null 2>&1; then
+                echo "Active package management processes found. Will not remove lock files(${count}/30 sec's):"
+                fuser -v /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock
+                if [ $count -ge 30 ]; then
+                  echo "Package management processes active for 30 sec, breaking the loop!"
+                  break
+                fi
+                count=$((count + 1))
+                sleep 1
+              else
+                echo "No active or background package management processes found. Force removing lock files..."
+                sudo rm -f /var/lib/dpkg/lock-frontend
+                sudo rm -f /var/lib/dpkg/lock
+                echo "Exit code for removing lock-frontend: $?"
+                break
+              fi
+            done
+          }
           IFS=' ' read -ra packages_paths <<< "$sorted_packages_paths"
           for package_path in "${packages_paths[@]}"; do
             pwd
@@ -377,29 +403,9 @@ jobs:
             rosdep update --include-eol-distros
             bloom-generate rosdebian
             sudo apt update
+            handle_lock_files
             sudo apt build-dep . -y
-            count=0
-
-            # Loop to check the lock files and active processes
-            while [ -e "/var/lib/dpkg/lock-frontend" ] || [ -e "/var/lib/dpkg/lock" ]; do
-              # Check if any process is actively using the lock files
-              if sudo fuser /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock >/dev/null 2>&1 || pgrep -f 'apt|dpkg' >/dev/null 2>&1; then
-                echo "Active package management processes found. Will not remove lock files(${count}/30 sec's):"
-                fuser -v /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock
-                if [ $count -ge 30 ]; then
-                  echo "Package management processes is active for 30 sec, breaking the loop!"
-                  break
-                fi
-                count=$((count + 1))
-                sleep 1
-              else
-                echo "No active or background package management processes found. Force removing lock files..."
-                sudo rm -f /var/lib/dpkg/lock-frontend
-                sudo rm -f /var/lib/dpkg/lock
-                break
-              fi
-            done
-
+            handle_lock_files
             dpkg-buildpackage -b -rfakeroot -us -uc
             cd ..
             # ls | grep .deb
@@ -466,7 +472,7 @@ jobs:
             package_exists=$(yq ".$package_name" ./docker_container/local.yaml)
             if [[ $package_exists = null ]]; then
               # Define the apt package
-              apt_package=$(echo "$package_name" | sed 's/_/-/g; s/^/ros-$ROS_DIST-/')
+              apt_package=$(echo "$package_name" | sed "s/_/-/g; s/^/ros-$ROS_DIST-/")
               
               # Create the YAML content for the new package
               new_yaml_content="${package_name}:\n  ubuntu:\n    focal: [${apt_package}]"
@@ -619,6 +625,7 @@ jobs:
 
         # Identify unique repositories containing the packages in the new list paths and create a separate list
         package_path_in_ros_ws=$(find . -type d -name "${next_packages_arry[0]}" -exec test -e "{}/package.xml" \; -print -quit)
+        # package_path_in_ros_ws=$(dirname $(find . -name 'package.xml' -exec grep -lq "<name>${next_packages_arry[0]}</name>" {} \; -print -quit))
         
         if [[ -z "$package_path_in_ros_ws" ]]; then
           echo "The package_path_in_ros_ws value is empty."
