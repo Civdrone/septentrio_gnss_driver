@@ -27,11 +27,15 @@ jobs:
     runs-on: ubuntu-20.04
     timeout-minutes: 20
     outputs:
-      label-amd: ${{ steps.start-amd-runner.outputs.label || steps.manual-input.outputs.label-amd }}
-      amd-instance-id: ${{ steps.start-amd-runner.outputs.ec2-instance-id || steps.manual-input.outputs.ec2-instance-id-amd }}
+      label-arm: ${{ steps.start-arm-runner.outputs.label }}
+      arm-instance-id: ${{ steps.start-arm-runner.outputs.ec2-instance-id }}
+      label-amd: ${{ steps.start-amd-runner.outputs.label }}
+      amd-instance-id: ${{ steps.start-amd-runner.outputs.ec2-instance-id }}
+      runners_matrix: ${{ steps.runners-matrix.outputs.runners_matrix }}
+
     steps:
     - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v2
+      uses: aws-actions/configure-aws-credentials@v4
       with:
         aws-access-key-id: ${{ secrets.CI_AWS_ACCESS_KEY_ID }}
         aws-secret-access-key: ${{ secrets.CI_AWS_SECRET_ACCESS_KEY }}
@@ -39,7 +43,7 @@ jobs:
 
     - name: Start AMD runner
       id: start-amd-runner
-      uses: Amir-civ/ec2-github-runner@v1
+      uses: Amir-civ/ec2-github-runner@v2
       with:
         mode: start
         github-token: ${{ secrets.gh_token }}
@@ -47,10 +51,32 @@ jobs:
         ec2-instance-type: c5.2xlarge
         subnet-id: subnet-0ea80778fd45e76a0
         security-group-id: sg-095940a96979f1b1d
+        runnerUser: ubuntu
+
+    - name: Start ARM runner
+      id: start-arm-runner
+      uses: Amir-civ/ec2-github-runner@v2
+      with:
+        mode: start
+        github-token: ${{ secrets.gh_token }}
+        ec2-image-id: ami-0111efac66ad5af90
+        ec2-instance-type: c6g.2xlarge
+        subnet-id: subnet-0ea80778fd45e76a0
+        security-group-id: sg-095940a96979f1b1d
+        runnerUser: ubuntu
+
+    - name: Set Runners Matrix
+      id: runners-matrix
+      run: |
+        RUNNERS_MATRIX="{\"include\":[{\"name\":\"arm-full-build-test\",\"label\":\"${{ steps.start-arm-runner.outputs.label || steps.manual-input.outputs.label-arm }}\"},{\"name\":\"amd-full-build-test\",\"label\":\"${{ steps.start-amd-runner.outputs.label || steps.manual-input.outputs.label-amd }}\"}]}"
+        echo "runners_matrix=${RUNNERS_MATRIX}" >> $GITHUB_OUTPUT
 
   full-build-test:
     needs: initiate-workflow # required to start the main job when the runner is ready
-    runs-on: ${{ needs.initiate-workflow.outputs.label-amd }} # run the job on the newly created runner
+    strategy:
+      matrix: ${{fromJson(needs.initiate-workflow.outputs.runners_matrix)}}    
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.label }}
     timeout-minutes: 60
     steps:
       - name: Clone Repos
@@ -114,20 +140,27 @@ jobs:
     needs: [initiate-workflow, full-build-test]
     runs-on: ubuntu-20.04
     timeout-minutes: 20
-    if: |
-      always() && needs.initiate-workflow.outputs.label-amd != null
+    if: always() && (needs.initiate-workflow.outputs.label-amd != null || needs.initiate-workflow.outputs.label-arm != null)
     steps:
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v2
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.CI_AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.CI_AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Stop AMD runner
-        uses: Amir-civ/ec2-github-runner@v1
+        uses: Amir-civ/ec2-github-runner@v2
         with:
           mode: stop
           github-token: ${{ secrets.gh_token }}
           label: ${{ needs.initiate-workflow.outputs.label-amd }}
           ec2-instance-id: ${{ needs.initiate-workflow.outputs.amd-instance-id }}
+
+      - name: Stop ARM runner
+        uses: Amir-civ/ec2-github-runner@v2
+        with:
+          mode: stop
+          github-token: ${{ secrets.gh_token }}
+          label: ${{ needs.initiate-workflow.outputs.label-arm }}
+          ec2-instance-id: ${{ needs.initiate-workflow.outputs.arm-instance-id }}
