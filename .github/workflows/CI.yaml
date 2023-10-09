@@ -1,55 +1,17 @@
 name: ci-new-design
-run-name: ${{ github.event_name == 'workflow_dispatch' && format('C - {0} | S - {1} *{2} | P - {3} *{4}', github.event.inputs.commiter, github.event.inputs.source_repo, github.event.inputs.source_build, github.event.inputs.prev_repo, github.event.inputs.prev_build) || github.event.head_commit.message }}
+run-name: ${{ format('Commiter - {0} | msg - {1}', github.actor, github.event.head_commit.message || 'none') }}
 
 on:
   workflow_dispatch:
     inputs:
       packages_build_paths:
-        description: 'intput package to trigger build'
+        description: 'input packages for build (seperated by spaces)'
         required: true
-        default: ''
-
-      source_repo:
-        description: 'Input source repository to trigger build'
-        required: false
-        default: ''
-      source_build:
-        description: 'Input source build number'
-        required: false
-        default: ''
-      prev_repo:
-        description: 'Input previous repository'
-        required: false
-        default: ''
-      prev_build:
-        description: 'Input previous build number'
-        required: false
-        default: ''
-      commiter:
-        description: 'Input of the commiter'
-        required: false
-        default: ''
-
-      runner_amd_lable:
-        description: 'aws self hosted runner amd lable to run jobs (optional)'
-        required: false
-        default: ''
-      runner_arm_lable:
-        description: 'aws self hosted runner arm lable to run jobs (optional)'
-        required: false
-        default: ''
-      runner_arm_id:
-        description: 'aws self hosted runner arm id to run jobs (optional)'
-        required: false
-        default: ''
-      runner_amd_id:
-        description: 'aws self hosted runner amd id to run jobs (optional)'
-        required: false
         default: ''
   push:
     # branches-ignore:
       # - 'v[0-9]+.[0-9]+'
-          
+
 concurrency: lock-${{ github.ref }}
 
 env:
@@ -71,13 +33,12 @@ jobs:
     runs-on: ubuntu-20.04
     timeout-minutes: 20
     outputs:
-      label-arm: ${{ steps.start-arm-runner.outputs.label || steps.manual-input.outputs.label-arm }}
-      arm-instance-id: ${{ steps.start-arm-runner.outputs.ec2-instance-id || steps.manual-input.outputs.ec2-instance-id-arm }}
-      label-amd: ${{ steps.start-amd-runner.outputs.label || steps.manual-input.outputs.label-amd }}
-      amd-instance-id: ${{ steps.start-amd-runner.outputs.ec2-instance-id || steps.manual-input.outputs.ec2-instance-id-amd }}
+      label-arm: ${{ steps.start-arm-runner.outputs.label }}
+      arm-instance-id: ${{ steps.start-arm-runner.outputs.ec2-instance-id }}
+      label-amd: ${{ steps.start-amd-runner.outputs.label }}
+      amd-instance-id: ${{ steps.start-amd-runner.outputs.ec2-instance-id }}
       promote-tag: ${{ steps.promote-tag.outputs.PROMOTED_TAG }}
       changed_packages_paths: ${{ steps.manual-input.outputs.changed_packages_paths || steps.changed-packages.outputs.changed_packages_paths }}
-      packages_names: ${{ steps.manual-input.outputs.packages_names || steps.changed-packages.outputs.packages_names }}
       release_branch: ${{ steps.check-release.outputs.RELEASE_BRANCH }}
       runners_matrix: ${{ steps.runners-matrix.outputs.runners_matrix }}
     steps:
@@ -85,6 +46,13 @@ jobs:
         uses: actions/checkout@v3
         with:
           fetch-depth: 0
+
+      - name: Setup JFrog CLI
+        uses: jfrog/setup-jfrog-cli@v3.4.0
+        env:
+          JF_URL: https://civrobotics.jfrog.io
+          JF_USER: amir_b
+          JF_PASSWORD: ${{ secrets.artifactory_token }}
 
       - name: Check release branch
         id: check-release
@@ -102,7 +70,6 @@ jobs:
           # Run the command to check if the full build tag exists in civros-release
           git clone https://"Amir-civ:$GH_TOKEN"@github.com/Civdrone/civros-release.git
           cd civros-release
-
           # Check if the tag exists
           if git rev-parse "$BRANCH-promoted" >/dev/null 2>&1; then
             # The tag exists
@@ -122,7 +89,6 @@ jobs:
         run: |
           # Initialize unique_packages_paths
           unique_packages_paths=()
-
           if [[ "${{ github.event.before }}" == "0000000000000000000000000000000000000000" ]]; then
             # For the first commit on a new branch, compare it to the commit before
             mapfile -t CHANGED_FILES < <(git diff --name-status ${{ github.event.after }}~1 ${{ github.event.after }})
@@ -130,7 +96,6 @@ jobs:
             # For most cases, compare the state before and after the push
             mapfile -t CHANGED_FILES < <(git diff --name-status ${{ github.event.before }} ${{ github.event.after }})
           fi
-
           for line in "${CHANGED_FILES[@]}"; do
             status="${line:0:1}"
             path="${line:2}"
@@ -163,23 +128,13 @@ jobs:
               fi
             fi
           done
-
           # Remove duplicates from the unique_packages_paths list
           unique_packages_paths=($(for path in "${unique_packages_paths[@]}"; do
             echo "$path"
           done | sort -u))
-
-          # Output the list of unique packages paths
           echo "Changed packages: ${unique_packages_paths[@]}"
-
-          # Always set the `changed_packages_paths` environment variable
           echo "changed_packages_paths=${unique_packages_paths[*]}" >> "$GITHUB_OUTPUT"
           echo "changed_packages_paths=${unique_packages_paths[*]}" >> "$GITHUB_ENV"
-
-          # Extract base names from paths and join them with a space
-          # Even if unique_packages_paths is empty, packages_names will be set to an empty string
-          packages_names=$(echo "${unique_packages_paths[*]}" | xargs -n 1 basename | xargs)
-          echo "packages_names=${packages_names}" >> "$GITHUB_OUTPUT"
 
       - name: Get workflow manual input
         id: manual-input
@@ -187,14 +142,7 @@ jobs:
         if: ${{ github.event_name == 'workflow_dispatch' }}
         run: |
           # Split the input paths by spaces and store them in an array
-          echo "paths: ${{ github.event.inputs.packages_build_paths }}"
-          echo "arm lable: ${{ github.event.inputs.runner_arm_lable }}"
-          echo "arm id: ${{ github.event.inputs.runner_arm_id }}"
-          echo "amd lable: ${{ github.event.inputs.runner_amd_lable }}"
-          echo "amd id: ${{ github.event.inputs.runner_amd_id }}"
-
           IFS=' ' read -ra paths <<< "${{ github.event.inputs.packages_build_paths }}"
-
           # Initialize an empty string to store the converted absolute paths
           converted_paths=""
           
@@ -212,18 +160,59 @@ jobs:
           # Set the converted_paths string as the value in changed_packages_paths
           echo "changed_packages_paths=$converted_paths" >> "$GITHUB_OUTPUT"
           echo "changed_packages_paths=$converted_paths" >> "$GITHUB_ENV"
-          echo "label-arm=${{ github.event.inputs.runner_arm_lable }}" >> "$GITHUB_OUTPUT"
-          echo "label-amd=${{ github.event.inputs.runner_amd_lable }}" >> "$GITHUB_OUTPUT"
-          echo "ec2-instance-id-arm=${{ github.event.inputs.runner_arm_id }}" >> "$GITHUB_OUTPUT"
-          echo "ec2-instance-id-amd=${{ github.event.inputs.runner_amd_id }}" >> "$GITHUB_OUTPUT"
-
           # Extract base names from paths and join them with a space
-          packages_names=$(echo "$converted_paths" | xargs -n 1 basename | xargs)
-          echo "packages_names=${packages_names}" >> "$GITHUB_OUTPUT"
+
+      - name: Set Packages versions
+        id: packages-versions
+        if: ${{ env.changed_packages_paths != '' }}
+        run: |
+          echo "before setting versions starts"
+          # Derive package names from changed_packages_paths
+          IFS=' ' read -ra paths_array <<< "$changed_packages_paths"
+          package_names=()
+          for path in "${paths_array[@]}"; do
+              package_name=$(basename "$path")
+              package_names+=("$package_name")
+          done
+          touch packages_meta_data.txt
+          echo "List of packages: ${package_names[@]}"
+          for package_name in "${package_names[@]}"; do
+            # Convert package name to desired format
+            transformed_name="ros-$ROS_DIST-$(echo "$package_name" | tr '_' '-')"
+            echo "transformed_name: $transformed_name"
+            # Fetch the latest version of the package from Artifactory
+            echo "Fetching version for $transformed_name"
+            latest_version_output=$(jf rt s "civros-unstable/$ROS_DIST/${transformed_name}/*" --sort-by "created" --sort-order "desc" --limit 1 | jq -r '.[0].path' | grep -o "[0-9]\+\.[0-9]\+\.[0-9]\+" | head -n 1)
+            echo "Output from Artifactory for $transformed_name:"
+            echo "$latest_version_output"
+            if [[ -z "$latest_version_output" ]]; then
+              echo "No version was found for $transformed_name. Setting patch number to 1."
+              patch=1
+            else
+              # Extract patch
+              patch=$(echo "$latest_version_output" | cut -d'.' -f3)
+
+              echo "Patch: $patch"
+              # Increment the patch version
+              patch=$((patch+1))
+              echo "New patch: $patch"
+            fi
+            echo "New version for $transformed_name: $patch"
+            # Write the new package mapping and version to the file
+            echo "${transformed_name}=$patch" >> packages_meta_data.txt
+          done
+          cat packages_meta_data.txt
+          echo "after setting versions"
+
+      - name: Upload packages meta data file
+        uses: actions/upload-artifact@v3
+        with:
+          name: packages-meta-data
+          path: packages_meta_data.txt
 
       - name: Configure AWS credentials
         if: ${{ github.event_name == 'push' && env.changed_packages_paths != '' || github.event_name == 'workflow_dispatch' && (steps.manual-input.outputs.label-arm == '' || steps.manual-input.outputs.label-amd == '') }}
-        uses: aws-actions/configure-aws-credentials@v2
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.CI_AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.CI_AWS_SECRET_ACCESS_KEY }}
@@ -232,26 +221,28 @@ jobs:
       - name: Start AMD runner
         if: ${{ github.event_name == 'push' && env.changed_packages_paths != '' || github.event_name == 'workflow_dispatch' && (steps.manual-input.outputs.label-arm == '' || steps.manual-input.outputs.label-amd == '') }}
         id: start-amd-runner
-        uses: Amir-civ/ec2-github-runner@v1
+        uses: Amir-civ/ec2-github-runner@v2
         with:
           mode: start
           github-token: ${{ secrets.gh_token }}
-          ec2-image-id: ami-0709e48fc2257176b
+          ec2-image-id: ami-03b8aec6cd5a3cbed
           ec2-instance-type: c5.2xlarge
           subnet-id: subnet-0ea80778fd45e76a0
           security-group-id: sg-095940a96979f1b1d
+          runnerUser: ubuntu
 
       - name: Start ARM runner
         if: ${{ github.event_name == 'push' && env.changed_packages_paths != '' || github.event_name == 'workflow_dispatch' && (steps.manual-input.outputs.label-arm == '' || steps.manual-input.outputs.label-amd == '') }}
         id: start-arm-runner
-        uses: Amir-civ/ec2-github-runner@v1
+        uses: Amir-civ/ec2-github-runner@v2
         with:
           mode: start
           github-token: ${{ secrets.gh_token }}
-          ec2-image-id: ami-05defeebd3c93ab8e
+          ec2-image-id: ami-0663923f594e144cb
           ec2-instance-type: c6g.2xlarge
           subnet-id: subnet-0ea80778fd45e76a0
           security-group-id: sg-095940a96979f1b1d
+          runnerUser: ubuntu
 
       - name: Set Runners Matrix
         id: runners-matrix
@@ -270,7 +261,14 @@ jobs:
     env:
       promote-tag: ${{needs.initiate-workflow.outputs.promote-tag}}
       changed_packages_paths: ${{needs.initiate-workflow.outputs.changed_packages_paths}}
+      deb_directory: "${{ github.workspace }}/debian_packages"
     steps:
+      - name: Disable unattended-upgrades
+        run: |
+          sudo apt remove -y unattended-upgrades
+          pip3 install witmotion
+          sudo apt-get install -y tree
+          
       - name: checkout
         uses: actions/checkout@v3
         with:
@@ -280,6 +278,11 @@ jobs:
         if: ${{ github.event_name != 'workflow_dispatch' }}
         run: |
           sudo ln -s /usr/include/eigen3/Eigen /usr/include/Eigen
+          
+      - name: Download packages meta data file
+        uses: actions/download-artifact@v3
+        with:
+          name: packages-meta-data
 
       - name: organizing build order for packages
         run: |
@@ -287,23 +290,26 @@ jobs:
           
           # Run colcon list --topological-order command and extract the first fraction from each line
           build_order=$(colcon list --topological-order | awk '{print $1}')
-
           #convert strings into arrays
           build_order_arry=($build_order)
           packages_paths_arry=($changed_packages_paths)
-
           # Create an array to hold the sorted list
           declare -a sorted_packages_paths
-
+          sorted_packages_names=""
           for package in "${!build_order_arry[@]}"; do
             for package_path in "${packages_paths_arry[@]}"; do
                 if [[ ${build_order_arry[$package]} = $(basename "$package_path") ]]; then
                 sorted_packages_paths+=("$package_path")
+                sorted_packages_names+="$(basename "$package_path") "
                 fi
             done
           done
-          echo "soreted packages: ${sorted_packages_paths[*]}"
+          # Remove the trailing space
+          sorted_packages_names=${sorted_packages_names::-1}
+          echo "soreted packages paths: ${sorted_packages_paths[*]}"
           echo "sorted_packages_paths=${sorted_packages_paths[*]}" >> $GITHUB_ENV
+          echo "soreted packages names: ${sorted_packages_names[*]}"
+          echo "sorted_packages_names=${sorted_packages_names}" >> $GITHUB_ENV
 
       - name: Update artifactory server
         run: |
@@ -311,20 +317,16 @@ jobs:
           fallback_branch=$(cat fallback-manifest.txt)
           declare -A branch_priority_map
           branch_priority_map["$BRANCH"]=1001
-
           # Check if the fallback branch is different from the current branch
           if [[ "$BRANCH" != "$fallback_branch" ]]; then
             branch_priority_map["$fallback_branch"]=1000
           fi
-
           # Loop through branches and update files
           for branch in "${!branch_priority_map[@]}"; do
             priority="${branch_priority_map[$branch]}"
-
           pref_file="/etc/apt/preferences.d/10-civ.pref"
           # Create the file if it doesn't exist
           sudo touch "$pref_file"
-
             # Check if the branch preference already exists
             if ! grep -q "Pin: release c='$branch'" "$pref_file"; then
               sudo bash -c "cat >> $pref_file << EOF
@@ -333,18 +335,15 @@ jobs:
           Pin-Priority: $priority
           EOF"
             fi
-
             source_file="/etc/apt/sources.list.d/civ.list"
             # Create the file if it doesn't exist
             sudo touch "$source_file"
-
             # Check if the source list for the branch already exists
             source_entry="deb https://amir_b:$ARTIFACTORY_TOKEN@$ARTIFACTORY_URL $ROS_DIST $branch"
             if ! grep -q "$source_entry" "$source_file"; then
               sudo sh -c "echo '$source_entry' >> $source_file"
             fi
           done
-
           sudo cat /etc/apt/preferences.d/10-civ.pref
           sudo cat /etc/apt/sources.list.d/civ.list
           wget -O civrobotics.pub https://amir_b:$ARTIFACTORY_TOKEN@civrobotics.jfrog.io/artifactory/api/security/keypair/debianKeys/public
@@ -364,9 +363,6 @@ jobs:
       - name: Build deb package
         id: build_deb_package
         run: |
-          pip3 install witmotion
-          built_packages=true
-
           # Define the lock file handling function
           handle_lock_files() {
             echo "About to enter lock file handling loop..."
@@ -391,66 +387,132 @@ jobs:
               fi
             done
           }
+          # Use colcon to build all identified ROS packages
+          sudo apt-get install -y tree
+          rosdep update --include-eol-distros
+          source /opt/ros/$ROS_DIST/setup.bash
+          handle_lock_files
+          # sudo su ubuntu -c "bash -c 'cd $(pwd) && rosdep install --from-paths . -r -y'"
+          rosdep install --from-paths . -r -y
+          # rosdep install --from-paths $(echo $sorted_packages_paths | tr ' ' '\n') -r -y
+          colcon build --packages-select $sorted_packages_names
+          ls install
+          tree install
+          built_packages=true
+          mkdir -p $deb_directory
+          
           IFS=' ' read -ra packages_paths <<< "$sorted_packages_paths"
           for package_path in "${packages_paths[@]}"; do
-            pwd
-            ls
             cd "$package_path"
-            pwd
-            ls
-            sed -E -i "s/<version>([0-9]+)\.([0-9]+)\.([0-9]+)<\/version>/<version>\1.\2.${BUILD_NUMBER}<\/version>/" package.xml
-            source /opt/ros/$ROS_DIST/setup.bash
-            rosdep update --include-eol-distros
-            bloom-generate rosdebian
-            sudo apt update
-            handle_lock_files
-            sudo apt build-dep . -y
-            handle_lock_files
-            dpkg-buildpackage -b -rfakeroot -us -uc
-            cd ..
-            # ls | grep .deb
-            if ! ls *.deb 1>/dev/null 2>&1; then
-              built_packages=false
+            package_src_name=$(basename "$package_path" )
+            package_name=$(basename "$package_path" | tr '_' '-')
+            package_name="ros-$ROS_DIST-$package_name"
+
+            # Create an associative array to hold the package name and its version
+            declare -A package_versions
+            meta_data_file="${GITHUB_WORKSPACE}/packages_meta_data.txt"
+            # Read the meta_data_file and populate the package_versions array
+            while IFS='=' read -r key value; do
+              package_versions["$key"]="$value"
+            done < ${meta_data_file}
+
+            sed -E -i "s/<version>([0-9]+)\.([0-9]+)\.([0-9]+)<\/version>/<version>\1.\2.${package_versions[$package_name]}<\/version>/" package.xml
+
+            package_version=$(grep '<version>' package.xml | sed 's/.*<version>\(.*\)<\/version>.*/\1/')
+            arch=$(dpkg --print-architecture)
+            debian_package_name="${package_name}_${package_version}_0focal_${arch}"
+            # Extract the keys for the current package using rosdep
+            keys=$(rosdep keys --from-paths .)
+            # Loop through each key and resolve its dependency
+            dep_list=()
+            for key in $keys; do
+                echo "Resolving key: $key"
+                rosdep_output=$(rosdep resolve ${key} --rosdistro=${ROS_DIST} --os=ubuntu:focal)
+                echo "Rosdep output for $key: $rosdep_output"
+                resolved_dep=$(echo "$rosdep_output" | grep '^#apt' -A1 | tail -n1 | xargs)
+                echo "Resolved dependency: $resolved_dep"
+                if [[ ! -z "$resolved_dep" && ! " ${dep_list[*]} " =~ " ${resolved_dep} " ]]; then
+                    dep_list+=($resolved_dep)
+                fi
+            done
+
+            # Convert the dep_list array into a comma-separated string
+            formatted_deps=$(echo "${dep_list[@]}" | sed 's/ /, /g')
+            # Print the result
+            echo "Resolved Dependencies for Debian Control File:"
+            echo "$formatted_deps"
+            echo "dep: ${dep_list[@]}"
+            mkdir -p ${debian_package_name}/DEBIAN
+            mkdir -p ${debian_package_name}/opt/ros/$ROS_DIST/
+            # Populate Package Structure
+            if [ -d "$GITHUB_WORKSPACE/install/${package_src_name}/share" ]; then
+              mkdir -p ${debian_package_name}/opt/ros/$ROS_DIST/share/
+              cp -R $GITHUB_WORKSPACE/install/${package_src_name}/share/* ${debian_package_name}/opt/ros/$ROS_DIST/share/
+            else
+              echo "Directory install/${package_src_name}/share does not exist."
             fi
+            if [ -d "$GITHUB_WORKSPACE/install/${package_src_name}/lib" ]; then
+              mkdir -p ${debian_package_name}/opt/ros/$ROS_DIST/lib/
+              cp -R $GITHUB_WORKSPACE/install/${package_src_name}/lib/* ${debian_package_name}/opt/ros/$ROS_DIST/lib/
+            else
+              echo "Directory install/${package_src_name}/lib does not exist."
+            fi
+            if [ -d "$GITHUB_WORKSPACE/install/${package_src_name}/include" ]; then
+              mkdir -p ${debian_package_name}/opt/ros/$ROS_DIST/include/
+              cp -R $GITHUB_WORKSPACE/install/${package_src_name}/include/* ${debian_package_name}/opt/ros/$ROS_DIST/include/
+            else
+              echo "Directory install/${package_src_name}/include does not exist."
+            fi
+            # Create DEBIAN control file
+            {
+              echo "Package: $package_name"
+              echo "Version: $package_version-0focal"
+              echo "Architecture: $arch"
+              echo "Maintainer: Civrobotics <civ@civrobotics.com>"
+              echo "Depends: $formatted_deps"
+              echo "Description: $package_name ROS package"
+            } > ${debian_package_name}/DEBIAN/control
+            # Display DEBIAN/control file to verify its contents
+            cat ${debian_package_name}/DEBIAN/control
+            # Build Debian Package
+            tree ${debian_package_name}
+            handle_lock_files
+            dpkg-deb --build ${debian_package_name}
+            dpkg-deb -c ${debian_package_name}.deb
+            pwd
+            ls -al
+            echo "Moving .deb from $(pwd)/${debian_package_name}.deb to $deb_directory/"
+            mv $(pwd)/${debian_package_name}.deb $deb_directory/
           done
+          echo "debs: $deb_directory"
+          cd $deb_directory
+          pwd
+          ls
+          # Check for built packages
+          cd $deb_directory
+          if ! ls *.deb 1>/dev/null 2>&1; then
+            built_packages=false
+          fi
           echo "built_packages=$built_packages" >> $GITHUB_ENV
 
       - name: Push to artifactory server
         if: ${{ env.built_packages == 'true' }}
         run: |
-          # convert the list to an array
-          IFS=' ' read -ra changed_packages_paths_arry <<< "$changed_packages_paths"
-
-          # use an associative array(bash dictionary) to handle duplicates
-          declare -A debian_packages_paths
-
-          # loop over each path, get the dirname and add it to the associative array(bash dictionary)
-          for i in "${changed_packages_paths_arry[@]}"; do
-            dirname=$(dirname "$i")
-            debian_packages_paths["$dirname"]=1
-          done
-
-          # now debian_packages_paths is a list with unique directories, so we can iterate over it
-          for dir in "${!debian_packages_paths[@]}"; do
-            echo "Processing directory $dir"
-            cd "$dir"
+          cd $deb_directory
+          # Load the package meta data file into a variable
+          meta_data_file="${GITHUB_WORKSPACE}/packages_meta_data.txt"
+          PACKS=($(ls ${1:-.}/*.deb))
+          echo "$PACKS"
+          for pack in "${PACKS[@]}"
+          do
+            name=$(basename "$pack")
+            printf "\nPublishing %s\n" "$name"
             
-            # your script comes here
-            PACKS=($(ls ${1:-.}/*.deb))
-            echo "$PACKS"
-            for pack in "${PACKS[@]}"
-            do
-                name=$(basename "$pack")
-                printf "\nPublishing %s\n" "$name"
-                
-                dirname=$(cut -d '_' -f1 <<< "$name")
-                #push them to Artifactory
-                curl --fail -uamir_b:$ARTIFACTORY_TOKEN -XPUT "https://$ARTIFACTORY_URL/$ROS_DIST/${dirname}/${BRANCH}/${name};deb.distribution=$ROS_DIST;deb.component=$BRANCH;deb.architecture=$(dpkg --print-architecture);deb.build_number=$BUILD_NUMBER;deb.commit_sha=$GITHUB_SHA" -T $pack -o $dirname.json
-                cat $dirname.json
-            done
+            dirname=$(cut -d '_' -f1 <<< "$name")
 
-            # get back to the initial directory, so that relative paths work in the next iteration
-            cd -
+            #push them to Artifactory
+            curl --fail -uamir_b:$ARTIFACTORY_TOKEN -XPUT "https://$ARTIFACTORY_URL/$ROS_DIST/${dirname}/${BRANCH}/${name};deb.distribution=$ROS_DIST;deb.component=$BRANCH;deb.architecture=$(dpkg --print-architecture);deb.build_number=$BUILD_NUMBER;deb.repo=$REPO;deb.commit_sha=$GITHUB_SHA;" -T $pack -o $dirname.json
+            cat $dirname.json
           done
 
       - name: Update rosdep yaml file
@@ -472,7 +534,7 @@ jobs:
             package_exists=$(yq ".$package_name" ./docker_container/local.yaml)
             if [[ $package_exists = null ]]; then
               # Define the apt package
-              apt_package=$(echo "$package_name" | sed "s/_/-/g; s/^/ros-$ROS_DIST-/")
+              apt_package=$(echo "$package_name" | sed 's/_/-/g; s/^/ros-$ROS_DIST-/')
               
               # Create the YAML content for the new package
               new_yaml_content="${package_name}:\n  ubuntu:\n    focal: [${apt_package}]"
@@ -494,7 +556,7 @@ jobs:
             else
               echo "$package_name exists"
             fi
-          done       
+          done
 
       - name: Update commit status and cencel all workflows with the same branch on failure
         if: ${{ failure() }}
@@ -510,19 +572,16 @@ jobs:
           else
               echo "Failed to download repo.csv file."
           fi
-
           # Read the CSV file and cencel repositories
           while IFS=, read -r repo || [ -n "$repo" ]; do
             # Get the most recent workflow run ID for the specified event and branch
             run_id=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
             "https://api.github.com/repos/$REPO_OWNER/$repo/actions/runs?branch=$BRANCH" \
             | jq -r '.workflow_runs[0].id')
-
             # Cancel the workflow run if a run ID is found
             if [ "$run_id" != "null" ]; then
                 curl -X POST -s -H "Authorization: Bearer $GH_TOKEN" \
                 "https://api.github.com/repos/$REPO_OWNER/$repo/actions/runs/$run_id/cancel"
-
                 echo "Workflow run $run_id has been canceled"
             else
                 echo "No workflow run found for $repo"
@@ -537,223 +596,22 @@ jobs:
           cd $GITHUB_WORKSPACE
           git checkout -- .
           git clean -f
-          
-      - name: Post to a Slack channel
-        if: ${{ always() }}
-        id: slack
-        uses: slackapi/slack-github-action@v1.23.0
-        with:
-          channel-id: 'C051SPVTW2Z'
-          slack-message: |
-            GitHub build result: ${{ job.status }}
-            Workflow: ${{ github.job }}
-            Repository: ${{ github.event.repository.name }}
-            Packages: ${{needs.initiate-workflow.outputs.packages_names}}
-            Branch: ${{ github.ref_name }}
-            Build Number: ${{ github.run_number }}
-            Triggered by: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.commiter || github.actor}}
-            Workflow URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        env:
-          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
-
-  depends_on_trigger:
-    needs: [build, initiate-workflow]
-    if: ${{ github.event_name == 'workflow_dispatch' && (github.ref_name == 'develop' || needs.initiate-workflow.outputs.RELEASE_BRANCH == 'true') && needs.build.result == 'success' }}
-    runs-on: ${{ needs.initiate-workflow.outputs.label-amd }} # run the job on the newly created runner
-    timeout-minutes: 20
-    outputs:
-      recursion_ends: ${{ steps.trigger-depends-pacakge.outputs.recursion_ends }}
-    env:  # Set the environment variables at the job level
-      promote-tag: ${{needs.initiate-workflow.outputs.promote-tag}}
-      changed_packages_paths: ${{needs.initiate-workflow.outputs.changed_packages_paths}}
-      label_arm: ${{needs.initiate-workflow.outputs.label-arm}}
-      label_amd: ${{needs.initiate-workflow.outputs.label-amd}}
-      arm_instance_id: ${{needs.initiate-workflow.outputs.arm-instance-id}}
-      amd_instance_id: ${{needs.initiate-workflow.outputs.amd-instance-id}}
-    steps:
-    - name: checkout
-      uses: actions/checkout@v3
-      with:
-        fetch-depth: 0
-
-    - name: Trigger task that depends on packages
-      id: trigger-depends-pacakge
-      run: |
-        echo "Changed package paths: $changed_packages_paths"
-        mkdir ros_ws && cd ros_ws
-        # Download repo.csv
-        if [[ $BRANCH =~ ^v[0-9]+\.[0-9]+$ ]]; then
-          sudo curl -u "Amir-civ:$GH_TOKEN" -L https://raw.githubusercontent.com/$REPO_OWNER/civros-release/$BRANCH/repo.csv -o ./repo.csv
-        else
-          sudo curl -u "Amir-civ:$GH_TOKEN" -L https://raw.githubusercontent.com/$REPO_OWNER/civros-release/develop/repo.csv -o ./repo.csv
-        fi
-
-        if [ $? -eq 0 ]; then
-            echo "repo.csv file downloaded successfully!"
-        else
-            echo "Failed to download repo.csv file."
-        fi
-        
-        # Read the CSV file and clone repositories
-        while IFS=, read -r repo || [ -n "$repo" ]; do
-          git clone -b $BRANCH https://"$Amir-civ":"${GH_TOKEN}"@github.com/Civdrone/"$repo".git
-        done < ./repo.csv
-        
-        source /opt/ros/$ROS_DIST/setup.bash
-        
-        # Run colcon list --topological-order command and extract the first fraction from each line
-        build_order=$(colcon list --topological-order | awk '{print $1}')
-        build_order_arry=($build_order)
-        packages_paths_arry=($changed_packages_paths)
-        recursion_ends="false"
-
-        for i in "${!build_order_arry[@]}"; do
-            for package_path in "${packages_paths_arry[@]}"; do
-                if [[ ${build_order_arry[$i]} = $(basename "$package_path") ]]; then
-                    next_packages_arry=("${build_order_arry[@]:$((i+1))}")
-                    break 2
-                fi
-            done
-        done
-
-        if [[ ${#next_packages_arry[@]} -gt 0 ]]; then
-            echo "next package: ${next_packages_arry[0]}"
-        else
-            echo "No next packages found."
-            recursion_ends="true"
-        fi
-
-        # Identify unique repositories containing the packages in the new list paths and create a separate list
-        package_path_in_ros_ws=$(find . -type d -name "${next_packages_arry[0]}" -exec test -e "{}/package.xml" \; -print -quit)
-        # package_path_in_ros_ws=$(dirname $(find . -name 'package.xml' -exec grep -lq "<name>${next_packages_arry[0]}</name>" {} \; -print -quit))
-        
-        if [[ -z "$package_path_in_ros_ws" ]]; then
-          echo "The package_path_in_ros_ws value is empty."
-        fi
-
-        next_repo=$(echo $package_path_in_ros_ws | cut -d'/' -f2)
-        next_package_path=$(echo $package_path_in_ros_ws | cut -d'/' -f3-)
-
-        echo "recursion_ends=$recursion_ends" >> "$GITHUB_OUTPUT"
-
-        if [[ $recursion_ends == "false" ]]; then
-
-          if [[ -z "$next_package_path" ]]; then
-            echo "Next package path is empty, assining relative path."
-            next_package_path="."
-          fi
-
-          # Trigger workflow using GitHub API
-          echo "next packages: ${build_order_arry[@]}"
-          echo "next repo: $next_repo"
-          echo "next package: $next_package_path"
-          # response=$(curl -s -o /dev/null -w "%{http_code}" -X POST https://api.github.com/repos/$REPO_OWNER/$next_repo/actions/workflows/dev-ci.yaml/dispatches -H "Accept: application/vnd.github.v3+json" -H "Authorization: token $GH_TOKEN" --data '{"ref": "'$BRANCH'", "inputs": {"packages_build_paths": "'$next_package_path'"}}')
-          echo "'$amd_instance_id'"
-          echo "'$label_amd'"
-          echo "'$arm_instance_id'"
-          echo "'$label_arm'"
-
-          source_repo=${{  github.event_name == 'workflow_dispatch' && github.event.inputs.source_repo || env.REPO }}
-          source_build=${{  github.event_name == 'workflow_dispatch' && github.event.inputs.source_build || env.BUILD_NUMBER }}
-          prev_repo=${{ env.REPO }}
-          prev_build=${{ env.BUILD_NUMBER }}
-          commiter=${{ github.event_name == 'workflow_dispatch' && github.event.inputs.commiter || github.actor}}
-
-          # echo "source_repo=$source_repo" >> $GITHUB_ENV
-          # echo "source_build=$source_build" >> $GITHUB_ENV
-          # echo "commiter=$commiter" >> $GITHUB_ENV
-
-          response=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
-          https://api.github.com/repos/$REPO_OWNER/$next_repo/actions/workflows/CI.yaml/dispatches \
-          -H "Accept: application/vnd.github.v3+json" \
-          -H "Authorization: token $GH_TOKEN" \
-          --data '{
-            "ref": "'$BRANCH'",
-            "inputs": {
-              "packages_build_paths": "'$next_package_path'",
-              "runner_amd_lable": "'$label_amd'",
-              "runner_arm_lable": "'$label_arm'",
-              "runner_arm_id": "'$arm_instance_id'",
-              "runner_amd_id": "'$amd_instance_id'",
-              "source_repo": "'$source_repo'",
-              "source_build": "'$source_build'",
-              "prev_repo": "'$prev_repo'",
-              "prev_build": "'$prev_build'",
-              "commiter": "'$commiter'"
-            }
-          }')       
-          if [ "$response" -ne 204 ]; then
-            echo "Failed to trigger the workflow. HTTP status was: $response"
-            exit 1
-          fi
-          curl -X POST -u amir_b:$ARTIFACTORY_TOKEN "https://civrobotics.jfrog.io/artifactory/api/deb/reindex/civros-unstable?writeProps=0"
-        fi
-
-    - name: Trigger meta package build
-      if: ${{ steps.trigger-depends-pacakge.outputs.recursion_ends == 'true' }}
-      run: |
-        response=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
-        https://api.github.com/repos/$REPO_OWNER/civros-release/actions/workflows/dev_meta_packages.yaml/dispatches \
-        -H "Accept: application/vnd.github.v3+json" \
-        -H "Authorization: token $GH_TOKEN" \
-        --data '{
-          "ref": "'$BRANCH'"
-        }')       
-        if [ "$response" -ne 204 ]; then
-          echo "Failed to trigger the workflow. HTTP status was: $response"
-          exit 1
-        fi
-        curl -X POST -u amir_b:$ARTIFACTORY_TOKEN "https://civrobotics.jfrog.io/artifactory/api/deb/reindex/civros-unstable?writeProps=0"
-
-    - name: Discard Local Changes
-      if: ${{ always() }}
-      run: |
-        cd $GITHUB_WORKSPACE
-        git checkout -- .
-        git clean -f
-
-    - name: Post to a Slack channel
-      if: ${{ failure() || cancelled() || steps.trigger-depends-pacakge.outputs.recursion_ends == 'true' }}
-      id: slack
-      uses: slackapi/slack-github-action@v1.23.0
-      with:
-        # Slack channel id, channel name, or user id to post message.
-        # See also: https://api.slack.com/methods/chat.postMessage#channels
-        # You can pass in multiple channels to post to by providing a comma-delimited list of channel IDs.
-        channel-id: 'C051SPVTW2Z'
-        # For posting a simple plain text message
-        slack-message: |
-          GitHub build result: ${{ job.status }}
-          Workflow: ${{ github.job }}
-          Repository: ${{ github.event.repository.name }}
-          Branch: ${{ github.ref_name }}
-          Build Number: ${{ github.run_number }}
-          Triggered by: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.commiter || github.actor}}
-          Full Build Status: ${{  steps.trigger-depends-pacakge.outputs.recursion_ends == 'true' && 'success' || 'faild' }}
-          Source Repository: ${{  github.event_name == 'workflow_dispatch' && github.event.inputs.source_repo || env.REPO }}
-          Source Build Number: ${{  github.event_name == 'workflow_dispatch' && github.event.inputs.source_build || env.BUILD_NUMBER }}
-          Workflow URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
-      env:
-        SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
         
   stop-runners:
-    needs: [initiate-workflow, build, depends_on_trigger]
+    needs: [initiate-workflow, build]
     runs-on: ubuntu-20.04
     timeout-minutes: 20
-    if: |
-      always() && (needs.initiate-workflow.outputs.label-amd != null || needs.initiate-workflow.outputs.label-arm != null) &&
-      (github.event_name != 'workflow_dispatch' || (needs.depends_on_trigger.result != 'success' || (needs.depends_on_trigger.result == 'success' && needs.depends_on_trigger.outputs.recursion_ends == 'true')))
-
+    if: always() && (needs.initiate-workflow.outputs.label-amd != null || needs.initiate-workflow.outputs.label-arm != null)
     steps:
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v2
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.CI_AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.CI_AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Stop AMD runner
-        uses: Amir-civ/ec2-github-runner@v1
+        uses: Amir-civ/ec2-github-runner@v2
         with:
           mode: stop
           github-token: ${{ secrets.gh_token }}
@@ -761,7 +619,7 @@ jobs:
           ec2-instance-id: ${{ needs.initiate-workflow.outputs.amd-instance-id }}
 
       - name: Stop ARM runner
-        uses: Amir-civ/ec2-github-runner@v1
+        uses: Amir-civ/ec2-github-runner@v2
         with:
           mode: stop
           github-token: ${{ secrets.gh_token }}
