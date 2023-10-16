@@ -162,11 +162,63 @@ jobs:
           echo "changed_packages_paths=$converted_paths" >> "$GITHUB_ENV"
           # Extract base names from paths and join them with a space
 
+      - name: Ensure ROS Package Versions
+        run: |
+          git config --global user.email "civ-ci@civrobotics.com"
+          git config --global user.name "Your Civ-ci"
+
+          # Check if the "fallback-manifest.txt" file exists
+          if [ -f "fallback-manifest.txt" ]; then
+            # Determine the major and minor version numbers based on the content of "fallback-manifest.txt"
+            FALLBACK_MANIFEST=$(cat "fallback-manifest.txt")
+            if [[ "$FALLBACK_MANIFEST" == "develop" ]]; then
+              MAJOR=0
+              MINOR=0
+            elif [[ "$FALLBACK_MANIFEST" =~ ^v([0-9]+)\.([0-9]+)$ ]]; then
+              MAJOR=${BASH_REMATCH[1]}
+              MINOR=${BASH_REMATCH[2]}
+            else
+              echo "Invalid fallback-manifest: $FALLBACK_MANIFEST"
+              exit 1
+            fi
+            echo "Setting major and minor versions to: $MAJOR.$MINOR"
+
+            # Loop over each package.xml in the workspace
+            for xml_path in $(find . -type f -name "package.xml"); do
+              echo "--------------------------------------------------"
+              echo "Found package.xml at: $xml_path"
+              echo "Contents of the package.xml before update:"
+              cat "$xml_path"
+
+              # Update the version to match the parsed major and minor versions
+              sed -E -i "s/<version>([0-9]+)\.([0-9]+)\.([0-9]+)<\/version>/<version>${MAJOR}.${MINOR}.0<\/version>/" "$xml_path"
+
+              echo "Contents of the package.xml after update:"
+              cat "$xml_path"
+            done
+
+            # Only commit and push if there are changes
+            if [[ -n $(git status -s) ]]; then
+              git add .
+              git commit -m "Update package.xml with release version [skip ci]"
+              git push
+            else
+              echo "No changes to commit in repository: $repo_name"
+            fi
+          else
+            echo "Can't find fallback-manifest.txt in repository: $repo_name"
+          fi
+
       - name: Set Packages versions
         id: packages-versions
         if: ${{ env.changed_packages_paths != '' }}
         run: |
           echo "before setting versions starts"
+          # Check if the "fallback-manifest.txt" file exists
+          if [ -f "fallback-manifest.txt" ]; then
+            # Determine the major and minor version numbers based on the content of "fallback-manifest.txt"
+            FALLBACK_MANIFEST=$(cat "fallback-manifest.txt")
+          fi
           # Derive package names from changed_packages_paths
           IFS=' ' read -ra paths_array <<< "$changed_packages_paths"
           package_names=()
@@ -182,7 +234,14 @@ jobs:
             echo "transformed_name: $transformed_name"
             # Fetch the latest version of the package from Artifactory
             echo "Fetching version for $transformed_name"
-            latest_version_output=$(jf rt s "civros-unstable/$ROS_DIST/${transformed_name}/*" --sort-by "created" --sort-order "desc" --limit 1 | jq -r '.[0].path' | grep -o "[0-9]\+\.[0-9]\+\.[0-9]\+" | head -n 1)
+
+            if [[ $FALLBACK_MANIFEST =~ ^v[0-9]+\.[0-9]+$ ]]; then
+              MAJOR_MINOR="${FALLBACK_MANIFEST#v}"
+              latest_version_output=$(jf rt s "civros-unstable/$ROS_DIST/${transformed_name}/*/*$MAJOR_MINOR.*" --sort-by "created" --sort-order "desc" --limit 1 | jq -r '.[0].path' | grep -o "[0-9]\+\.[0-9]\+\.[0-9]\+" | head -n 1)
+            else
+              latest_version_output=$(jf rt s "civros-unstable/$ROS_DIST/${transformed_name}/*/*0.0.*" --sort-by "created" --sort-order "desc" --limit 1 | jq -r '.[0].path' | grep -o "[0-9]\+\.[0-9]\+\.[0-9]\+" | head -n 1)
+            fi
+
             echo "Output from Artifactory for $transformed_name:"
             echo "$latest_version_output"
             if [[ -z "$latest_version_output" ]]; then
