@@ -535,7 +535,7 @@ jobs:
             package_exists=$(yq ".$package_name" ./docker_container/local.yaml)
             if [[ $package_exists = null ]]; then
               # Define the apt package
-              apt_package=$(echo "$package_name" | sed 's/_/-/g; s/^/ros-$ROS_DIST-/')
+              apt_package=$(echo "$package_name" | sed "s/_/-/g; s/^/ros-$ROS_DIST-/")
               
               # Create the YAML content for the new package
               new_yaml_content="${package_name}:\n  ubuntu:\n    focal: [${apt_package}]"
