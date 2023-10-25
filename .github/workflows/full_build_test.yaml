@@ -82,7 +82,7 @@ jobs:
       - name: Clone Repos
         run: |
           mkdir ros_ws && cd ros_ws
-          sudo curl -u "Amir-civ:$GH_TOKEN" -L https://raw.githubusercontent.com/${{ env.REPO_OWNER }}/civros-release/main/repo.csv -o ./repo.csv
+          sudo curl -u "Amir-civ:$GH_TOKEN" -L https://raw.githubusercontent.com/${{ env.REPO_OWNER }}/civros-release/$BRANCH/repo.csv -o ./repo.csv
           if [ $? -eq 0 ]; then
               echo "repo.csv file downloaded successfully!"
           else
