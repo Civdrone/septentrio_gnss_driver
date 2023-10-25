@@ -47,11 +47,11 @@ jobs:
       with:
         mode: start
         github-token: ${{ secrets.gh_token }}
-        ec2-image-id: ami-0709e48fc2257176b
+        ec2-image-id: ${{ secrets.galactic_amd_runner }}
         ec2-instance-type: c5.2xlarge
         subnet-id: subnet-0ea80778fd45e76a0
         security-group-id: sg-095940a96979f1b1d
-        runnerUser: ubuntu
+        runnerUser: civrobotics
 
     - name: Start ARM runner
       id: start-arm-runner
@@ -59,11 +59,11 @@ jobs:
       with:
         mode: start
         github-token: ${{ secrets.gh_token }}
-        ec2-image-id: ami-0111efac66ad5af90
+        ec2-image-id: ${{ secrets.galactic_arm_runner }}
         ec2-instance-type: c6g.2xlarge
         subnet-id: subnet-0ea80778fd45e76a0
         security-group-id: sg-095940a96979f1b1d
-        runnerUser: ubuntu
+        runnerUser: civrobotics
 
     - name: Set Runners Matrix
       id: runners-matrix
@@ -82,7 +82,7 @@ jobs:
       - name: Clone Repos
         run: |
           mkdir ros_ws && cd ros_ws
-          sudo curl -u "Amir-civ:$GH_TOKEN" -L https://raw.githubusercontent.com/${{ env.REPO_OWNER }}/civros-release/main/repo.csv -o ./repo.csv
+          sudo curl -u "Amir-civ:$GH_TOKEN" -L https://raw.githubusercontent.com/${{ env.REPO_OWNER }}/civros-release/$BRANCH/repo.csv -o ./repo.csv
           if [ $? -eq 0 ]; then
               echo "repo.csv file downloaded successfully!"
           else

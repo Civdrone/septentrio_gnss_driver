@@ -287,11 +287,11 @@ jobs:
         with:
           mode: start
           github-token: ${{ secrets.gh_token }}
-          ec2-image-id: ami-03b8aec6cd5a3cbed
+          ec2-image-id: ${{ secrets.galactic_amd_runner }}
           ec2-instance-type: c5.2xlarge
           subnet-id: subnet-0ea80778fd45e76a0
           security-group-id: sg-095940a96979f1b1d
-          runnerUser: ubuntu
+          runnerUser: civrobotics
 
       - name: Start ARM runner
         if: ${{ github.event_name == 'push' && env.changed_packages_paths != '' || github.event_name == 'workflow_dispatch' && (steps.manual-input.outputs.label-arm == '' || steps.manual-input.outputs.label-amd == '') }}
@@ -300,11 +300,11 @@ jobs:
         with:
           mode: start
           github-token: ${{ secrets.gh_token }}
-          ec2-image-id: ami-0663923f594e144cb
+          ec2-image-id: ${{ secrets.galactic_arm_runner }}
           ec2-instance-type: c6g.2xlarge
           subnet-id: subnet-0ea80778fd45e76a0
           security-group-id: sg-095940a96979f1b1d
-          runnerUser: ubuntu
+          runnerUser: civrobotics
 
       - name: Set Runners Matrix
         id: runners-matrix
@@ -325,21 +325,10 @@ jobs:
       changed_packages_paths: ${{needs.initiate-workflow.outputs.changed_packages_paths}}
       deb_directory: "${{ github.workspace }}/debian_packages"
     steps:
-      - name: Disable unattended-upgrades
-        run: |
-          sudo apt remove -y unattended-upgrades
-          pip3 install witmotion
-          sudo apt-get install -y tree
-          
       - name: checkout
         uses: actions/checkout@v3
         with:
           fetch-depth: 0
-
-      - name: additional env installations
-        if: ${{ github.event_name != 'workflow_dispatch' }}
-        run: |
-          sudo ln -s /usr/include/eigen3/Eigen /usr/include/Eigen
           
       - name: Download packages meta data file
         uses: actions/download-artifact@v3
@@ -428,6 +417,7 @@ jobs:
         run: |
           major_minor=${{ needs.initiate-workflow.outputs.major_minor }}
           echo "$major_minor"
+          echo "paths for rosdep: ${sorted_packages_paths[*]}"
           # Define the lock file handling function
           handle_lock_files() {
             echo "About to enter lock file handling loop..."
@@ -436,7 +426,7 @@ jobs:
               echo "Inside the lock file handling loop..."
               if sudo fuser /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock >/dev/null 2>&1 || pgrep -f 'apt|dpkg' >/dev/null 2>&1; then
                 echo "Active package management processes found. Will not remove lock files(${count}/30 sec's):"
-                fuser -v /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock
+                fuser -v /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock || true
                 if [ $count -ge 30 ]; then
                   echo "Package management processes active for 30 sec, breaking the loop!"
                   break
@@ -457,9 +447,7 @@ jobs:
           rosdep update --include-eol-distros
           source /opt/ros/$ROS_DIST/setup.bash
           handle_lock_files
-          # sudo su ubuntu -c "bash -c 'cd $(pwd) && rosdep install --from-paths . -r -y'"
-          rosdep install --from-paths . -r -y
-          # rosdep install --from-paths $(echo $sorted_packages_paths | tr ' ' '\n') -r -y
+          rosdep install --from-paths ${sorted_packages_paths[*]} -r -y
           colcon build --packages-select $sorted_packages_names
           ls install
           tree install
@@ -583,9 +571,11 @@ jobs:
       - name: Update rosdep yaml file
         if: ${{ env.built_packages == 'true' }}
         run: |
-          export HOME=/home/ubuntu
-          git clone https://"Amir-civ:$GH_TOKEN"@github.com/Civdrone/scripts.git
-          cd scripts
+          export HOME=/home/civrobotics
+          git config --global user.email "civrobotics-ci@civrobotics.com"
+          git config --global user.name "civrobotics-ci"
+          git clone https://"Amir-civ:$GH_TOKEN"@github.com/Civdrone/scripts.git rosdep-file-scripts
+          cd rosdep-file-scripts
           git checkout ci-github-actions
           IFS=' ' read -ra packages_paths <<< "$changed_packages_paths"
           for package_path in "${packages_paths[@]}"; do
@@ -599,7 +589,7 @@ jobs:
             package_exists=$(yq ".$package_name" ./docker_container/local.yaml)
             if [[ $package_exists = null ]]; then
               # Define the apt package
-              apt_package=$(echo "$package_name" | sed 's/_/-/g; s/^/ros-$ROS_DIST-/')
+              apt_package=$(echo "$package_name" | sed "s/_/-/g; s/^/ros-$ROS_DIST-/")
               
               # Create the YAML content for the new package
               new_yaml_content="${package_name}:\n  ubuntu:\n    focal: [${apt_package}]"
