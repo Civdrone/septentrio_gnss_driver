@@ -79,10 +79,17 @@ jobs:
     runs-on: ${{ matrix.label }}
     timeout-minutes: 60
     steps:
+      - name: checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+          
       - name: Clone Repos
         run: |
+          fallback_branch=$(cat fallback-manifest.txt)
+          echo "repo.csv branch:$fallback_branch"
           mkdir ros_ws && cd ros_ws
-          sudo curl -u "Amir-civ:$GH_TOKEN" -L https://raw.githubusercontent.com/${{ env.REPO_OWNER }}/civros-release/$BRANCH/repo.csv -o ./repo.csv
+          sudo curl -u "Amir-civ:$GH_TOKEN" -L https://raw.githubusercontent.com/${{ env.REPO_OWNER }}/civros-release/$fallback_branch/repo.csv -o ./repo.csv
           if [ $? -eq 0 ]; then
               echo "repo.csv file downloaded successfully!"
           else
@@ -90,8 +97,11 @@ jobs:
           fi
           
           while IFS=, read -r repo || [ -n "$repo" ]; do
+            echo "Attempting to clone repo: $repo"
             git clone https://Amir-civ:${{ secrets.GH_TOKEN }}@github.com/${{ env.REPO_OWNER }}/$repo.git
           done < repo.csv
+          pwd
+          ls
 
       - name: Checkout branches
         run: |
