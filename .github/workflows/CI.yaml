@@ -240,9 +240,9 @@ jobs:
 
             if [[ $FALLBACK_MANIFEST =~ ^v[0-9]+\.[0-9]+$ ]]; then
               MAJOR_MINOR="${FALLBACK_MANIFEST#v}"
-              latest_version_output=$(jf rt s "civros-unstable/$ROS_DIST/${transformed_name}/*/*$MAJOR_MINOR.*" --sort-by "created" --sort-order "desc" --limit 1 | jq -r '.[0].path' | grep -o "[0-9]\+\.[0-9]\+\.[0-9]\+" | head -n 1)
+              latest_version_output=$(jf rt s "civros-unstable/$ROS_DIST/${transformed_name}/*/*$MAJOR_MINOR.*" --sort-by "created" --sort-order "desc" | jq -r '.[].path' | grep -o "[0-9]\+\.[0-9]\+\.[0-9]\+" | sort --version-sort | uniq | tail -1)
             else
-              latest_version_output=$(jf rt s "civros-unstable/$ROS_DIST/${transformed_name}/*/*0.0.*" --sort-by "created" --sort-order "desc" --limit 1 | jq -r '.[0].path' | grep -o "[0-9]\+\.[0-9]\+\.[0-9]\+" | head -n 1)
+              latest_version_output=$(jf rt s "civros-unstable/$ROS_DIST/${transformed_name}/*/*0.0.*" --sort-by "created" --sort-order "desc" | jq -r '.[].path' | grep -o "[0-9]\+\.[0-9]\+\.[0-9]\+" | sort --version-sort | uniq | tail -1)
             fi
 
             echo "Output from Artifactory for $transformed_name:"
@@ -616,17 +616,16 @@ jobs:
       - name: Update commit status and cencel all workflows with the same branch on failure
         if: ${{ failure() }}
         run: |
-          if [[ $BRANCH =~ ^v[0-9]+\.[0-9]+$ ]]; then
-            sudo curl -u "Amir-civ:$GH_TOKEN" -L https://raw.githubusercontent.com/$REPO_OWNER/civros-release/$BRANCH/repo.csv -o ./repo.csv
-          else
-            sudo curl -u "Amir-civ:$GH_TOKEN" -L https://raw.githubusercontent.com/$REPO_OWNER/civros-release/develop/repo.csv -o ./repo.csv
-          fi
+          fallback_branch=$(cat fallback-manifest.txt)
+          echo "repo.csv branch:$fallback_branch"
+          sudo curl -u "Amir-civ:$GH_TOKEN" -L https://raw.githubusercontent.com/${{ env.REPO_OWNER }}/civros-release/$fallback_branch/repo.csv -o ./repo.csv
           
           if [ $? -eq 0 ]; then
               echo "repo.csv file downloaded successfully!"
           else
               echo "Failed to download repo.csv file."
           fi
+
           # Read the CSV file and cencel repositories
           while IFS=, read -r repo || [ -n "$repo" ]; do
             # Get the most recent workflow run ID for the specified event and branch
@@ -642,6 +641,7 @@ jobs:
                 echo "No workflow run found for $repo"
             fi
           done < ./repo.csv
+          
           # update commit status
           curl -X POST -H "Authorization: token $GH_TOKEN" -H "Accept: application/vnd.github.v3+json" https://api.github.com/repos/$REPO_OWNER/$REPO/statuses/${COMMIT_ID} -d '{"state": "failure", "context": "continuous-integration/build-${BUILD_NUMBER"}'
 
