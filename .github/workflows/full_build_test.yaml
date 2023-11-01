@@ -1,4 +1,4 @@
-name: full-build-test
+name: pull-request-test
 
 on:
 
@@ -137,20 +137,6 @@ jobs:
           rosdep install --from-paths . --ignore-src -r -y --rosdistro galactic
           source /opt/ros/galactic/setup.bash
           colcon build
-          
-      - name: Post to a Slack channel
-        if: ${{ always() }}
-        id: slack
-        uses: slackapi/slack-github-action@v1.23.0
-        with:
-          # Slack channel id, channel name, or user id to post message.
-          # See also: https://api.slack.com/methods/chat.postMessage#channels
-          # You can pass in multiple channels to post to by providing a comma-delimited list of channel IDs.
-          channel-id: 'C051SPVTW2Z'
-          # For posting a simple plain text message
-          slack-message: "GitHub build result: ${{ job.status }}\nWorkflow: ${{ github.job }}\nRepository: ${{ github.event.repository.name }}\nBase_Branch:${{ github.head_ref }}\nTarget Branch: ${{ github.event.pull_request.base.ref }}\nBuild Number: ${{ github.run_number }}\nLink:${{ github.event.pull_request.html_url || github.event.head_commit.url }}"
-        env:
-          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
 
   stop-runners:
     needs: [initiate-workflow, full-build-test]
@@ -180,3 +166,19 @@ jobs:
           github-token: ${{ secrets.gh_token }}
           label: ${{ needs.initiate-workflow.outputs.label-arm }}
           ec2-instance-id: ${{ needs.initiate-workflow.outputs.arm-instance-id }}
+
+  slack-report:
+    needs: [initiate-workflow, full-build-test, stop-runners]
+    runs-on: ubuntu-20.04
+    timeout-minutes: 20
+    if: always()
+    steps:
+      - name: Slack Workflow Notification
+        uses: Gamesight/slack-workflow-status@v1.2.0
+        with:
+          # Required Input
+          repo_token: ${{secrets.GITHUB_TOKEN}}
+          slack_webhook_url: ${{secrets.SLACK_WEBHOOK_URL}}
+          # Optional Input
+          channel: '#continuous-integration'
+          name: 'Civ-Bot'

@@ -680,3 +680,29 @@ jobs:
           github-token: ${{ secrets.gh_token }}
           label: ${{ needs.initiate-workflow.outputs.label-arm }}
           ec2-instance-id: ${{ needs.initiate-workflow.outputs.arm-instance-id }}
+
+      - name: Slack Workflow Notification
+        uses: Gamesight/slack-workflow-status@v1.2.0
+        with:
+          # Required Input
+          repo_token: ${{secrets.GITHUB_TOKEN}}
+          slack_webhook_url: ${{secrets.SLACK_WEBHOOK_URL}}
+          # Optional Input
+          channel: '#continuous-integration'
+          name: 'Civ-Bot'
+
+  slack-report:
+    needs: [initiate-workflow, build, stop-runners]
+    runs-on: ubuntu-20.04
+    timeout-minutes: 20
+    if: always()
+    steps:
+      - name: Slack Workflow Notification
+        uses: Gamesight/slack-workflow-status@v1.2.0
+        with:
+          # Required Input
+          repo_token: ${{secrets.GITHUB_TOKEN}}
+          slack_webhook_url: ${{secrets.SLACK_WEBHOOK_URL}}
+          # Optional Input
+          channel: '#continuous-integration'
+          name: 'Civ-Bot'
