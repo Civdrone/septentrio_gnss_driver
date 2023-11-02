@@ -139,6 +139,7 @@ jobs:
         run: |
           cd ros_ws
           rosdep update --include-eol-distros
+          sudo apt update
           rosdep install --from-paths . --ignore-src -r -y --rosdistro galactic
           source /opt/ros/galactic/setup.bash
           colcon build
