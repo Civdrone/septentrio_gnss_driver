@@ -79,6 +79,11 @@ jobs:
     runs-on: ${{ matrix.label }}
     timeout-minutes: 60
     steps:
+      - name: checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+          
       - name: Clone Repos
         run: |
           fallback_branch=$(cat fallback-manifest.txt)
