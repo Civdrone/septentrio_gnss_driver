@@ -314,6 +314,7 @@ jobs:
   
   build:
     strategy:
+      fail-fast: false
       matrix: ${{fromJson(needs.initiate-workflow.outputs.runners_matrix)}}    
     name: ${{ matrix.name }}
     needs: initiate-workflow 

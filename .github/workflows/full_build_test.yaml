@@ -74,6 +74,7 @@ jobs:
   full-build-test:
     needs: initiate-workflow # required to start the main job when the runner is ready
     strategy:
+      fail-fast: false
       matrix: ${{fromJson(needs.initiate-workflow.outputs.runners_matrix)}}    
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.label }}
