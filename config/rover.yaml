@@ -13,7 +13,7 @@ login:
   user: ""
   password: ""
 
-frame_id: back_gps_link
+frame_id: main_gps_link
 
 imu_frame_id: imu
 
